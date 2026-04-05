@@ -205,6 +205,76 @@ final class DokployRadarTests: XCTestCase {
         )
     }
 
+    @MainActor
+    func testPreferencesPersistCustomValues() {
+        let suiteName = "DokployRadarTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        let preferences = AppPreferences(userDefaults: defaults)
+        preferences.refreshInterval = .fiveMinutes
+        preferences.recentWindow = .sixHours
+        preferences.menuBarItemLimit = .twelve
+        preferences.showsSteadyServicesInMenu = true
+
+        let reloaded = AppPreferences(userDefaults: defaults)
+        XCTAssertEqual(reloaded.refreshInterval, .fiveMinutes)
+        XCTAssertEqual(reloaded.recentWindow, .sixHours)
+        XCTAssertEqual(reloaded.menuBarItemLimit, .twelve)
+        XCTAssertTrue(reloaded.showsSteadyServicesInMenu)
+    }
+
+    @MainActor
+    func testMenuEntriesRespectMenuPreferences() async throws {
+        let fileManager = FileManager.default
+        let rootURL = fileManager.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let storageURL = rootURL.appendingPathComponent("instances.json", isDirectory: false)
+        let suiteName = "DokployRadarTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        let preferences = AppPreferences(userDefaults: defaults)
+        let referenceDate = Date()
+
+        defer {
+            try? fileManager.removeItem(at: rootURL)
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        preferences.recentWindow = .oneHour
+        preferences.showsSteadyServicesInMenu = false
+        preferences.menuBarItemLimit = .five
+
+        let store = MonitorStore(
+            fileManager: fileManager,
+            storageURL: storageURL,
+            preferences: preferences,
+            snapshotFetcher: { instance in
+                InstanceSnapshot(
+                    instance: instance,
+                    entries: Self.makeMenuEntries(for: instance, at: referenceDate),
+                    refreshedAt: referenceDate,
+                    errorMessage: nil
+                )
+            }
+        )
+
+        store.saveInstance(
+            name: "Home Lab",
+            baseURLString: "https://dokploy.example.com",
+            apiToken: "token-123",
+            editing: nil,
+            refreshAfterSave: false
+        )
+
+        await store.refresh()
+        XCTAssertEqual(store.menuEntries.map(\.name), ["API", "Worker", "Web"])
+
+        preferences.showsSteadyServicesInMenu = true
+        XCTAssertEqual(store.menuEntries.map(\.name), ["API", "Worker", "Web", "Database"])
+    }
+
     private static func makeSnapshot(for instance: DokployInstance, at date: Date) -> InstanceSnapshot {
         let deployment = DokployCentralizedDeployment(
             deploymentId: "dep-\(instance.id.uuidString)",
@@ -240,5 +310,119 @@ final class DokployRadarTests: XCTestCase {
             refreshedAt: date,
             errorMessage: nil
         )
+    }
+
+    private static func makeMenuEntries(for instance: DokployInstance, at date: Date) -> [MonitoredApplication] {
+        let deploying = MonitoredApplication(
+            id: "deploying-\(instance.id.uuidString)",
+            instanceID: instance.id,
+            instanceName: instance.name,
+            instanceHost: instance.hostLabel,
+            projectName: "Core",
+            environmentName: "Prod",
+            applicationId: "app-deploying",
+            name: "API",
+            appName: nil,
+            applicationStatus: .running,
+            serviceType: .application,
+            latestDeployment: DokployCentralizedDeployment(
+                deploymentId: "dep-running",
+                title: "Deploy API",
+                description: nil,
+                status: .running,
+                createdAt: isoString(for: date.addingTimeInterval(-120)),
+                startedAt: isoString(for: date.addingTimeInterval(-120)),
+                finishedAt: nil,
+                errorMessage: nil,
+                application: nil,
+                compose: nil
+            )
+        )
+
+        let recent = MonitoredApplication(
+            id: "recent-\(instance.id.uuidString)",
+            instanceID: instance.id,
+            instanceName: instance.name,
+            instanceHost: instance.hostLabel,
+            projectName: "Core",
+            environmentName: "Prod",
+            applicationId: "app-recent",
+            name: "Worker",
+            appName: nil,
+            applicationStatus: .done,
+            serviceType: .application,
+            latestDeployment: DokployCentralizedDeployment(
+                deploymentId: "dep-recent",
+                title: "Deploy Worker",
+                description: nil,
+                status: .done,
+                createdAt: isoString(for: date.addingTimeInterval(-900)),
+                startedAt: isoString(for: date.addingTimeInterval(-850)),
+                finishedAt: isoString(for: date.addingTimeInterval(-600)),
+                errorMessage: nil,
+                application: nil,
+                compose: nil
+            )
+        )
+
+        let failed = MonitoredApplication(
+            id: "failed-\(instance.id.uuidString)",
+            instanceID: instance.id,
+            instanceName: instance.name,
+            instanceHost: instance.hostLabel,
+            projectName: "Core",
+            environmentName: "Prod",
+            applicationId: "app-failed",
+            name: "Web",
+            appName: nil,
+            applicationStatus: .error,
+            serviceType: .application,
+            latestDeployment: DokployCentralizedDeployment(
+                deploymentId: "dep-failed",
+                title: "Deploy Web",
+                description: nil,
+                status: .error,
+                createdAt: isoString(for: date.addingTimeInterval(-1800)),
+                startedAt: isoString(for: date.addingTimeInterval(-1750)),
+                finishedAt: isoString(for: date.addingTimeInterval(-1700)),
+                errorMessage: "Failed build",
+                application: nil,
+                compose: nil
+            )
+        )
+
+        let steady = MonitoredApplication(
+            id: "steady-\(instance.id.uuidString)",
+            instanceID: instance.id,
+            instanceName: instance.name,
+            instanceHost: instance.hostLabel,
+            projectName: "Core",
+            environmentName: "Prod",
+            applicationId: "app-steady",
+            name: "Database",
+            appName: nil,
+            applicationStatus: .done,
+            serviceType: .postgres,
+            latestDeployment: DokployCentralizedDeployment(
+                deploymentId: "dep-steady",
+                title: "Deploy Database",
+                description: nil,
+                status: .done,
+                createdAt: isoString(for: date.addingTimeInterval(-8_000)),
+                startedAt: isoString(for: date.addingTimeInterval(-7_950)),
+                finishedAt: isoString(for: date.addingTimeInterval(-7_900)),
+                errorMessage: nil,
+                application: nil,
+                compose: nil
+            )
+        )
+
+        return [steady, failed, recent, deploying]
+    }
+
+    private static func isoString(for date: Date) -> String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter.string(from: date)
     }
 }

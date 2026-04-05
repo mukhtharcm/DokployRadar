@@ -286,7 +286,7 @@ enum MonitoredApplicationGroup: Int, Comparable {
 }
 
 struct MonitoredApplication: Identifiable, Equatable {
-    static let recentWindow: TimeInterval = 60 * 60
+    static let defaultRecentWindow: TimeInterval = 60 * 60
 
     let id: String
     let instanceID: UUID
@@ -315,12 +315,12 @@ struct MonitoredApplication: Identifiable, Equatable {
         serviceType.displayName
     }
 
-    func group(now: Date) -> MonitoredApplicationGroup {
+    func group(now: Date, recentWindow: TimeInterval = Self.defaultRecentWindow) -> MonitoredApplicationGroup {
         if isDeploying {
             return .deploying
         }
 
-        if isRecent(now: now) {
+        if isRecent(now: now, recentWindow: recentWindow) {
             return .recent
         }
 
@@ -339,7 +339,7 @@ struct MonitoredApplication: Identifiable, Equatable {
         applicationStatus == .error || latestDeployment?.status == .error
     }
 
-    func isRecent(now: Date) -> Bool {
+    func isRecent(now: Date, recentWindow: TimeInterval = Self.defaultRecentWindow) -> Bool {
         guard let lastActivityDate else {
             return false
         }
@@ -348,11 +348,11 @@ struct MonitoredApplication: Identifiable, Equatable {
             return false
         }
 
-        return lastActivityDate >= now.addingTimeInterval(-Self.recentWindow)
+        return lastActivityDate >= now.addingTimeInterval(-recentWindow)
     }
 
-    func statusLabel(now: Date) -> String {
-        switch group(now: now) {
+    func statusLabel(now: Date, recentWindow: TimeInterval = Self.defaultRecentWindow) -> String {
+        switch group(now: now, recentWindow: recentWindow) {
         case .deploying:
             return "Deploying"
         case .recent:
@@ -407,9 +407,9 @@ struct InstanceSnapshot: Equatable {
         entries.filter(\.isDeploying).count
     }
 
-    var recentCount: Int {
+    func recentCount(recentWindow: TimeInterval = MonitoredApplication.defaultRecentWindow) -> Int {
         let now = refreshedAt
-        return entries.filter { $0.isRecent(now: now) }.count
+        return entries.filter { $0.isRecent(now: now, recentWindow: recentWindow) }.count
     }
 
     var failedCount: Int {
@@ -438,10 +438,14 @@ enum DokployRelativeTime {
 }
 
 enum DokploySorter {
-    static func sort(_ entries: [MonitoredApplication], now: Date) -> [MonitoredApplication] {
+    static func sort(
+        _ entries: [MonitoredApplication],
+        now: Date,
+        recentWindow: TimeInterval = MonitoredApplication.defaultRecentWindow
+    ) -> [MonitoredApplication] {
         entries.sorted { lhs, rhs in
-            let leftGroup = lhs.group(now: now)
-            let rightGroup = rhs.group(now: now)
+            let leftGroup = lhs.group(now: now, recentWindow: recentWindow)
+            let rightGroup = rhs.group(now: now, recentWindow: recentWindow)
 
             if leftGroup != rightGroup {
                 return leftGroup < rightGroup

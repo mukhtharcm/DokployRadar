@@ -3,10 +3,12 @@ import SwiftUI
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
-    private let store = MonitorStore()
+    let preferences = AppPreferences()
+    private lazy var store = MonitorStore(preferences: preferences)
     private let popover = NSPopover()
     private var statusItem: NSStatusItem?
     private var mainWindow: NSWindow?
+    private var settingsWindow: NSWindow?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -38,8 +40,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         popover.contentViewController = NSHostingController(
             rootView: MainMenuView(
                 store: store,
+                preferences: preferences,
                 onOpenApp: { [weak self] in
                     self?.openMainWindowFromPopover()
+                },
+                onOpenSettings: { [weak self] in
+                    self?.openSettingsWindowFromPopover()
                 }
             )
         )
@@ -65,6 +71,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         showMainWindow()
     }
 
+    private func openSettingsWindowFromPopover() {
+        popover.performClose(nil)
+        showSettingsWindow()
+    }
+
     private func showMainWindow() {
         if mainWindow == nil {
             mainWindow = makeMainWindow()
@@ -79,12 +90,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         mainWindow.makeKeyAndOrderFront(nil)
     }
 
+    private func showSettingsWindow() {
+        if settingsWindow == nil {
+            settingsWindow = makeSettingsWindow()
+        }
+
+        guard let settingsWindow else {
+            return
+        }
+
+        setFullAppVisibility(isVisible: true)
+        NSApp.activate(ignoringOtherApps: true)
+        settingsWindow.makeKeyAndOrderFront(nil)
+    }
+
     private func makeMainWindow() -> NSWindow {
         let rootView = MainMenuView(
             store: store,
+            preferences: preferences,
             preferredWidth: 980,
             fillsWindow: true,
-            showsQuitButton: false
+            showsQuitButton: false,
+            onOpenSettings: { [weak self] in
+                self?.showSettingsWindow()
+            }
         )
 
         let hostingController = NSHostingController(rootView: rootView)
@@ -102,12 +131,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         return window
     }
 
+    private func makeSettingsWindow() -> NSWindow {
+        let hostingController = NSHostingController(
+            rootView: PreferencesView(preferences: preferences)
+        )
+        let window = NSWindow(contentViewController: hostingController)
+        window.title = "Settings"
+        window.styleMask = [.titled, .closable, .miniaturizable]
+        window.setContentSize(NSSize(width: 460, height: 280))
+        window.contentMinSize = NSSize(width: 460, height: 280)
+        window.center()
+        window.isReleasedWhenClosed = false
+        window.setFrameAutosaveName("DokployRadarSettingsWindow")
+        window.delegate = self
+        return window
+    }
+
     func windowWillClose(_ notification: Notification) {
-        guard notification.object as? NSWindow === mainWindow else {
+        guard let window = notification.object as? NSWindow else {
             return
         }
 
-        setFullAppVisibility(isVisible: false)
+        if window === mainWindow || window === settingsWindow {
+            updateAppVisibilityAfterClosing(window)
+        }
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
@@ -127,6 +174,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
         NSApp.setActivationPolicy(targetPolicy)
         statusItem?.isVisible = true
+    }
+
+    private func updateAppVisibilityAfterClosing(_ closingWindow: NSWindow) {
+        let hasVisibleManagedWindow =
+            (mainWindow != closingWindow && mainWindow?.isVisible == true)
+            || (settingsWindow != closingWindow && settingsWindow?.isVisible == true)
+        setFullAppVisibility(isVisible: hasVisibleManagedWindow)
     }
 }
 

@@ -5,6 +5,8 @@ import Foundation
 final class MonitorStore: ObservableObject {
     typealias SnapshotFetcher = @Sendable (DokployInstance) async throws -> InstanceSnapshot
 
+    let preferences: AppPreferences
+
     @Published private(set) var instances: [DokployInstance] = []
     @Published private(set) var snapshots: [InstanceSnapshot] = []
     @Published private(set) var isRefreshing = false
@@ -14,23 +16,24 @@ final class MonitorStore: ObservableObject {
     private let storageURL: URL
     private let encoder = JSONEncoder()
     private let decoder = JSONDecoder()
-    private let refreshInterval: Duration
     private let snapshotFetcher: SnapshotFetcher
     private var refreshTask: Task<Void, Never>?
+    private var cancellables: Set<AnyCancellable> = []
 
     init(
         fileManager: FileManager = .default,
         storageURL: URL? = nil,
-        refreshInterval: Duration = .seconds(30),
+        preferences: AppPreferences = AppPreferences(),
         snapshotFetcher: SnapshotFetcher? = nil
     ) {
         self.fileManager = fileManager
         self.storageURL = storageURL ?? Self.defaultStorageURL(fileManager: fileManager)
-        self.refreshInterval = refreshInterval
+        self.preferences = preferences
         self.snapshotFetcher = snapshotFetcher ?? { instance in
             try await DokployAPIClient(instance: instance).fetchSnapshot()
         }
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        bindPreferences()
         load()
     }
 
@@ -39,11 +42,20 @@ final class MonitorStore: ObservableObject {
     }
 
     var allEntries: [MonitoredApplication] {
-        DokploySorter.sort(snapshots.flatMap(\.entries), now: Date())
+        DokploySorter.sort(
+            snapshots.flatMap(\.entries),
+            now: Date(),
+            recentWindow: preferences.recentWindowInterval
+        )
     }
 
     var menuEntries: [MonitoredApplication] {
-        Array(allEntries.prefix(8))
+        let now = Date()
+        let entries = allEntries.filter { entry in
+            preferences.showsSteadyServicesInMenu
+                || entry.group(now: now, recentWindow: preferences.recentWindowInterval) != .steady
+        }
+        return Array(entries.prefix(preferences.menuBarItemLimitValue))
     }
 
     var deployingCount: Int {
@@ -52,7 +64,7 @@ final class MonitorStore: ObservableObject {
 
     var recentCount: Int {
         let now = Date()
-        return allEntries.filter { $0.isRecent(now: now) }.count
+        return allEntries.filter { $0.isRecent(now: now, recentWindow: preferences.recentWindowInterval) }.count
     }
 
     var failedCount: Int {
@@ -110,7 +122,7 @@ final class MonitorStore: ObservableObject {
             await self.refresh()
 
             while !Task.isCancelled {
-                try? await Task.sleep(for: self.refreshInterval)
+                try? await Task.sleep(for: self.preferences.refreshInterval.duration)
                 await self.refresh()
             }
         }
@@ -242,6 +254,30 @@ final class MonitorStore: ObservableObject {
         if refreshAfterToggle {
             Task { await refresh() }
         }
+    }
+
+    private func bindPreferences() {
+        preferences.objectWillChange
+            .sink { [weak self] _ in
+                self?.objectWillChange.send()
+            }
+            .store(in: &cancellables)
+
+        preferences.$refreshInterval
+            .dropFirst()
+            .sink { [weak self] _ in
+                self?.restartMonitoringIfNeeded()
+            }
+            .store(in: &cancellables)
+    }
+
+    private func restartMonitoringIfNeeded() {
+        guard refreshTask != nil else {
+            return
+        }
+
+        stopMonitoring()
+        startMonitoring()
     }
 
     private func load() {

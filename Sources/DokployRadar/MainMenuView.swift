@@ -46,10 +46,12 @@ private enum DashboardFilter: String, CaseIterable, Identifiable {
 
 struct MainMenuView: View {
     @ObservedObject var store: MonitorStore
+    @ObservedObject var preferences: AppPreferences
     let preferredWidth: CGFloat
     let fillsWindow: Bool
     let showsQuitButton: Bool
     let onOpenApp: (() -> Void)?
+    let onOpenSettings: (() -> Void)?
 
     @State private var editorMode: InstanceEditorMode?
     @State private var selectedInstanceID: UUID?
@@ -59,16 +61,20 @@ struct MainMenuView: View {
 
     init(
         store: MonitorStore,
+        preferences: AppPreferences,
         preferredWidth: CGFloat = 380,
         fillsWindow: Bool = false,
         showsQuitButton: Bool = true,
-        onOpenApp: (() -> Void)? = nil
+        onOpenApp: (() -> Void)? = nil,
+        onOpenSettings: (() -> Void)? = nil
     ) {
         self.store = store
+        self.preferences = preferences
         self.preferredWidth = preferredWidth
         self.fillsWindow = fillsWindow
         self.showsQuitButton = showsQuitButton
         self.onOpenApp = onOpenApp
+        self.onOpenSettings = onOpenSettings
     }
 
     var body: some View {
@@ -220,17 +226,17 @@ struct MainMenuView: View {
     private var menuGroupedList: some View {
         let entries = store.menuEntries
         let now = Date()
-        let deploying = entries.filter { $0.group(now: now) == .deploying }
-        let recent = entries.filter { $0.group(now: now) == .recent }
-        let failed = entries.filter { $0.group(now: now) == .failed }
-        let steady = entries.filter { $0.group(now: now) == .steady }
+        let deploying = entries.filter { $0.group(now: now, recentWindow: recentWindowInterval) == .deploying }
+        let recent = entries.filter { $0.group(now: now, recentWindow: recentWindowInterval) == .recent }
+        let failed = entries.filter { $0.group(now: now, recentWindow: recentWindowInterval) == .failed }
+        let steady = entries.filter { $0.group(now: now, recentWindow: recentWindowInterval) == .steady }
 
         ScrollView {
             VStack(alignment: .leading, spacing: 2) {
                 if !deploying.isEmpty {
                     MenuSection(title: "Deploying", icon: "arrow.triangle.2.circlepath", color: .blue) {
                         ForEach(deploying) { entry in
-                            MenuEntryRow(entry: entry, isDeploying: true)
+                            MenuEntryRow(entry: entry, recentWindow: recentWindowInterval, isDeploying: true)
                         }
                     }
                 }
@@ -238,7 +244,7 @@ struct MainMenuView: View {
                 if !recent.isEmpty {
                     MenuSection(title: "Recently Deployed", icon: "checkmark.circle", color: .green) {
                         ForEach(recent) { entry in
-                            MenuEntryRow(entry: entry, isDeploying: false)
+                            MenuEntryRow(entry: entry, recentWindow: recentWindowInterval, isDeploying: false)
                         }
                     }
                 }
@@ -246,7 +252,7 @@ struct MainMenuView: View {
                 if !failed.isEmpty {
                     MenuSection(title: "Failed", icon: "exclamationmark.triangle", color: .red) {
                         ForEach(failed) { entry in
-                            MenuEntryRow(entry: entry, isDeploying: false)
+                            MenuEntryRow(entry: entry, recentWindow: recentWindowInterval, isDeploying: false)
                         }
                     }
                 }
@@ -254,7 +260,7 @@ struct MainMenuView: View {
                 if !steady.isEmpty {
                     MenuSection(title: "Steady", icon: "checkmark.seal", color: .secondary) {
                         ForEach(steady) { entry in
-                            MenuEntryRow(entry: entry, isDeploying: false)
+                            MenuEntryRow(entry: entry, recentWindow: recentWindowInterval, isDeploying: false)
                         }
                     }
                 }
@@ -270,6 +276,12 @@ struct MainMenuView: View {
             if let onOpenApp {
                 MenuFooterButton(label: "Dashboard", icon: "macwindow") {
                     onOpenApp()
+                }
+            }
+
+            if let onOpenSettings {
+                MenuFooterButton(label: "Settings", icon: "gearshape") {
+                    onOpenSettings()
                 }
             }
 
@@ -321,15 +333,22 @@ struct MainMenuView: View {
                     if entries.isEmpty {
                         noResultsState
                     } else {
-                        HStack(alignment: .top, spacing: 20) {
+                        HStack(alignment: .top, spacing: 0) {
                             ScrollView {
                                 LazyVStack(spacing: 6) {
                                     ForEach(entries) { entry in
                                         DashboardEntryRow(
                                             entry: entry,
-                                            isSelected: selectedDashboardEntry?.id == entry.id
+                                            isSelected: selectedDashboardEntry?.id == entry.id,
+                                            recentWindow: recentWindowInterval
                                         ) {
-                                            selectedEntryID = entry.id
+                                            withAnimation(.easeInOut(duration: 0.2)) {
+                                                if selectedEntryID == entry.id {
+                                                    selectedEntryID = nil
+                                                } else {
+                                                    selectedEntryID = entry.id
+                                                }
+                                            }
                                         }
                                     }
                                 }
@@ -338,15 +357,25 @@ struct MainMenuView: View {
                             }
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-                            ServiceDetailPanel(
-                                entry: selectedDashboardEntry,
-                                instance: selectedDashboardEntry.flatMap { entry in
-                                    store.instances.first { $0.id == entry.instanceID }
-                                }
-                            )
-                            .frame(width: 340)
-                            .padding(.trailing, 24)
-                            .padding(.vertical, 12)
+                            if let selectedEntry = selectedDashboardEntry {
+                                Divider()
+                                    .padding(.vertical, 12)
+
+                                ServiceDetailPanel(
+                                    entry: selectedEntry,
+                                    instance: store.instances.first { $0.id == selectedEntry.instanceID },
+                                    recentWindow: recentWindowInterval,
+                                    onClose: {
+                                        withAnimation(.easeInOut(duration: 0.2)) {
+                                            selectedEntryID = nil
+                                        }
+                                    }
+                                )
+                                .frame(width: 360)
+                                .padding(.trailing, 20)
+                                .padding(.vertical, 12)
+                                .transition(.move(edge: .trailing).combined(with: .opacity))
+                            }
                         }
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
@@ -431,6 +460,17 @@ struct MainMenuView: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .help("Add Instance")
+
+                if let onOpenSettings {
+                    Button {
+                        onOpenSettings()
+                    } label: {
+                        Image(systemName: "gearshape")
+                            .font(.system(size: 12, weight: .medium))
+                    }
+                    .buttonStyle(.bordered)
+                    .help("Preferences")
+                }
             }
         }
     }
@@ -752,7 +792,7 @@ struct MainMenuView: View {
                 Text("All quiet")
                     .font(.system(size: 13, weight: .semibold))
 
-                Text("Deploying and recently updated services will appear here.")
+                Text(quietStateMessage)
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
             }
@@ -836,19 +876,15 @@ struct MainMenuView: View {
         case .deploying:
             return base.filter { $0.isDeploying }
         case .recent:
-            return base.filter { $0.isRecent(now: now) }
+            return base.filter { $0.isRecent(now: now, recentWindow: recentWindowInterval) }
         case .failed:
             return base.filter { $0.isFailing }
         }
     }
 
     private var selectedDashboardEntry: MonitoredApplication? {
-        if let selectedEntryID,
-           let selected = dashboardFilteredEntries.first(where: { $0.id == selectedEntryID }) {
-            return selected
-        }
-
-        return dashboardFilteredEntries.first
+        guard let selectedEntryID else { return nil }
+        return dashboardFilteredEntries.first { $0.id == selectedEntryID }
     }
 
     private func countFor(filter: DashboardFilter) -> Int {
@@ -857,7 +893,7 @@ struct MainMenuView: View {
         switch filter {
         case .all: return base.count
         case .deploying: return base.filter { $0.isDeploying }.count
-        case .recent: return base.filter { $0.isRecent(now: now) }.count
+        case .recent: return base.filter { $0.isRecent(now: now, recentWindow: recentWindowInterval) }.count
         case .failed: return base.filter { $0.isFailing }.count
         }
     }
@@ -877,6 +913,18 @@ struct MainMenuView: View {
         }
 
         return store.instances.first { $0.id == selectedInstanceID }
+    }
+
+    private var recentWindowInterval: TimeInterval {
+        preferences.recentWindowInterval
+    }
+
+    private var quietStateMessage: String {
+        if preferences.showsSteadyServicesInMenu {
+            return "No services are available from your enabled instances right now."
+        }
+
+        return "Deploying, failed, and recently updated services will appear here."
     }
 }
 
@@ -982,13 +1030,14 @@ private struct MenuFooterButton: View {
 
 private struct MenuEntryRow: View {
     let entry: MonitoredApplication
+    let recentWindow: TimeInterval
     var isDeploying: Bool = false
 
     @State private var isHovered = false
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 60)) { context in
-            let group = entry.group(now: context.date)
+            let group = entry.group(now: context.date, recentWindow: recentWindow)
 
             HStack(spacing: 0) {
                 RoundedRectangle(cornerRadius: 1.5)
@@ -1012,7 +1061,12 @@ private struct MenuEntryRow: View {
                     Spacer(minLength: 6)
 
                     VStack(alignment: .trailing, spacing: 2) {
-                        StatusBadge(entry: entry, now: context.date, isAnimated: isDeploying)
+                        StatusBadge(
+                            entry: entry,
+                            now: context.date,
+                            recentWindow: recentWindow,
+                            isAnimated: isDeploying
+                        )
 
                         if let lastActivityDate = entry.lastActivityDate {
                             Text(DokployRelativeTime.shortString(since: lastActivityDate, now: context.date))
@@ -1054,13 +1108,14 @@ private struct MenuEntryRow: View {
 private struct DashboardEntryRow: View {
     let entry: MonitoredApplication
     let isSelected: Bool
+    let recentWindow: TimeInterval
     let action: () -> Void
 
     @State private var isHovered = false
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 60)) { context in
-            let group = entry.group(now: context.date)
+            let group = entry.group(now: context.date, recentWindow: recentWindow)
 
             HStack(spacing: 0) {
                 RoundedRectangle(cornerRadius: 2)
@@ -1087,6 +1142,7 @@ private struct DashboardEntryRow: View {
                             StatusBadge(
                                 entry: entry,
                                 now: context.date,
+                                recentWindow: recentWindow,
                                 isAnimated: group == .deploying
                             )
                         }
@@ -1194,43 +1250,70 @@ private enum ServiceHistoryState {
 }
 
 private struct ServiceDetailPanel: View {
-    let entry: MonitoredApplication?
+    let entry: MonitoredApplication
     let instance: DokployInstance?
+    let recentWindow: TimeInterval
+    let onClose: () -> Void
 
     @State private var historyState: ServiceHistoryState = .idle
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            if let entry {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 0) {
-                        detailHeader(entry: entry)
-                            .padding(.bottom, 16)
+            // Inspector header with close button
+            HStack {
+                Text("Inspector")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.tertiary)
+                    .textCase(.uppercase)
+                    .tracking(0.3)
 
-                        detailFacts(entry: entry)
-                            .padding(.bottom, 16)
+                Spacer()
 
-                        Divider()
-                            .padding(.bottom, 16)
-
-                        deploymentSection(entry: entry)
-                    }
-                    .padding(18)
+                Button {
+                    onClose()
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundStyle(.tertiary)
+                        .frame(width: 20, height: 20)
+                        .background(Color.primary.opacity(0.06), in: Circle())
                 }
-            } else {
-                detailPlaceholder
+                .buttonStyle(.plain)
+                .help("Close inspector (click entry again)")
+            }
+            .padding(.horizontal, 18)
+            .padding(.top, 14)
+            .padding(.bottom, 8)
+
+            Divider()
+                .padding(.horizontal, 14)
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    detailHeader(entry: entry)
+                        .padding(.bottom, 16)
+
+                    detailFacts(entry: entry)
+                        .padding(.bottom, 16)
+
+                    Divider()
+                        .padding(.bottom, 16)
+
+                    deploymentSection(entry: entry)
+                }
+                .padding(18)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(
-            RoundedRectangle(cornerRadius: 16)
+            RoundedRectangle(cornerRadius: 14)
                 .fill(Color.primary.opacity(0.02))
                 .overlay(
-                    RoundedRectangle(cornerRadius: 16)
+                    RoundedRectangle(cornerRadius: 14)
                         .strokeBorder(Color.primary.opacity(0.06), lineWidth: 0.5)
                 )
         )
-        .task(id: entry?.id) {
+        .task(id: entry.id) {
             await loadHistory()
         }
     }
@@ -1267,6 +1350,7 @@ private struct ServiceDetailPanel: View {
                         StatusBadge(
                             entry: entry,
                             now: .now,
+                            recentWindow: recentWindow,
                             isAnimated: entry.isDeploying
                         )
 
@@ -1346,7 +1430,7 @@ private struct ServiceDetailPanel: View {
             DetailFactCard(
                 icon: "circle.dotted",
                 label: "Status",
-                value: entry.statusLabel(now: .now),
+                value: entry.statusLabel(now: .now, recentWindow: recentWindow),
                 valueColor: accentColor(for: entry)
             )
             DetailFactCard(
@@ -1513,7 +1597,7 @@ private struct ServiceDetailPanel: View {
     }
 
     private func accentColor(for entry: MonitoredApplication) -> Color {
-        switch entry.group(now: .now) {
+        switch entry.group(now: .now, recentWindow: recentWindow) {
         case .deploying: return .blue
         case .recent: return .green
         case .failed: return .red
@@ -1997,12 +2081,13 @@ private struct SidebarInstanceRow: View {
 private struct StatusBadge: View {
     let entry: MonitoredApplication
     let now: Date
+    let recentWindow: TimeInterval
     var isAnimated: Bool = false
 
     @State private var animationPhase = false
 
     var body: some View {
-        let group = entry.group(now: now)
+        let group = entry.group(now: now, recentWindow: recentWindow)
 
         HStack(spacing: 4) {
             Circle()
