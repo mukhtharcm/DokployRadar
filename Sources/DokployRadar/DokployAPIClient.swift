@@ -10,7 +10,7 @@ struct DokployAPIClient {
     }
 
     func fetchSnapshot(now: Date = .now) async throws -> InstanceSnapshot {
-        async let projects: [DokployProject] = request(path: "/project.all")
+        async let projects: [DokployProject] = requestInventory()
         async let deployments: [DokployCentralizedDeployment] = request(path: "/deployment.allCentralized")
 
         let snapshotEntries = try buildEntries(
@@ -36,6 +36,16 @@ struct DokployAPIClient {
         return baseURL
             .appendingPathComponent("api", isDirectory: true)
             .appendingPathComponent(trimmedPath, isDirectory: false)
+    }
+
+    private func requestInventory() async throws -> [DokployProject] {
+        do {
+            return try await request(path: "/project.allForPermissions")
+        } catch DokployAPIError.requestFailed(let statusCode, _) where statusCode == 404 {
+            return try await request(path: "/project.all")
+        } catch DokployAPIError.decodingFailed(_) {
+            return try await request(path: "/project.all")
+        }
     }
 
     private func request<Response: Decodable>(path: String) async throws -> Response {
@@ -69,36 +79,156 @@ struct DokployAPIClient {
         now: Date
     ) -> [MonitoredApplication] {
         var latestDeploymentByAppID: [String: DokployCentralizedDeployment] = [:]
+        var latestDeploymentByComposeID: [String: DokployCentralizedDeployment] = [:]
         for deployment in deployments {
-            guard let application = deployment.application else {
-                continue
+            if let application = deployment.application,
+               latestDeploymentByAppID[application.applicationId] == nil {
+                latestDeploymentByAppID[application.applicationId] = deployment
             }
 
-            if latestDeploymentByAppID[application.applicationId] == nil {
-                latestDeploymentByAppID[application.applicationId] = deployment
+            if let compose = deployment.compose,
+               latestDeploymentByComposeID[compose.composeId] == nil {
+                latestDeploymentByComposeID[compose.composeId] = deployment
             }
         }
 
-        let flattened = projects.flatMap { project in
-            project.environments.flatMap { environment in
-                environment.applications.map { application in
-                    MonitoredApplication(
-                        id: "\(instance.id.uuidString):\(application.applicationId)",
-                        instanceID: instance.id,
-                        instanceName: instance.name,
-                        instanceHost: instance.hostLabel,
-                        projectName: project.name,
-                        environmentName: environment.name,
-                        applicationId: application.applicationId,
+        let flattened = projects.flatMap { project -> [MonitoredApplication] in
+            project.environments.flatMap { environment -> [MonitoredApplication] in
+                var entries: [MonitoredApplication] = []
+
+                entries += environment.applications.compactMap { application in
+                    makeEntry(
+                        serviceID: application.applicationId,
                         name: application.name,
-                        applicationStatus: application.applicationStatus,
+                        appName: application.appName,
+                        status: application.applicationStatus,
+                        serviceType: .application,
+                        project: project,
+                        environment: environment,
                         latestDeployment: latestDeploymentByAppID[application.applicationId]
                     )
                 }
+
+                entries += environment.compose.compactMap { compose in
+                    makeEntry(
+                        serviceID: compose.composeId,
+                        name: compose.name,
+                        appName: compose.appName,
+                        status: compose.composeStatus,
+                        serviceType: .compose,
+                        project: project,
+                        environment: environment,
+                        latestDeployment: latestDeploymentByComposeID[compose.composeId]
+                    )
+                }
+
+                entries += environment.mariadb.compactMap {
+                    makeEntry(
+                        serviceID: $0.mariadbId,
+                        name: $0.name,
+                        appName: $0.appName,
+                        status: $0.applicationStatus,
+                        serviceType: .mariadb,
+                        project: project,
+                        environment: environment
+                    )
+                }
+
+                entries += environment.mongo.compactMap {
+                    makeEntry(
+                        serviceID: $0.mongoId,
+                        name: $0.name,
+                        appName: $0.appName,
+                        status: $0.applicationStatus,
+                        serviceType: .mongo,
+                        project: project,
+                        environment: environment
+                    )
+                }
+
+                entries += environment.mysql.compactMap {
+                    makeEntry(
+                        serviceID: $0.mysqlId,
+                        name: $0.name,
+                        appName: $0.appName,
+                        status: $0.applicationStatus,
+                        serviceType: .mysql,
+                        project: project,
+                        environment: environment
+                    )
+                }
+
+                entries += environment.postgres.compactMap {
+                    makeEntry(
+                        serviceID: $0.postgresId,
+                        name: $0.name,
+                        appName: $0.appName,
+                        status: $0.applicationStatus,
+                        serviceType: .postgres,
+                        project: project,
+                        environment: environment
+                    )
+                }
+
+                entries += environment.redis.compactMap {
+                    makeEntry(
+                        serviceID: $0.redisId,
+                        name: $0.name,
+                        appName: $0.appName,
+                        status: $0.applicationStatus,
+                        serviceType: .redis,
+                        project: project,
+                        environment: environment
+                    )
+                }
+
+                entries += environment.libsql.compactMap {
+                    makeEntry(
+                        serviceID: $0.libsqlId,
+                        name: $0.name,
+                        appName: $0.appName,
+                        status: $0.applicationStatus,
+                        serviceType: .libsql,
+                        project: project,
+                        environment: environment
+                    )
+                }
+
+                return entries
             }
         }
 
         return DokploySorter.sort(flattened, now: now)
+    }
+
+    private func makeEntry(
+        serviceID: String,
+        name: String?,
+        appName: String?,
+        status: DokployApplicationStatus?,
+        serviceType: DokployServiceType,
+        project: DokployProject,
+        environment: DokployEnvironment,
+        latestDeployment: DokployCentralizedDeployment? = nil
+    ) -> MonitoredApplication? {
+        guard let name, let status else {
+            return nil
+        }
+
+        return MonitoredApplication(
+            id: "\(instance.id.uuidString):\(serviceType.rawValue):\(serviceID)",
+            instanceID: instance.id,
+            instanceName: instance.name,
+            instanceHost: instance.hostLabel,
+            projectName: project.name,
+            environmentName: environment.name,
+            applicationId: serviceID,
+            name: name,
+            appName: appName,
+            applicationStatus: status,
+            serviceType: serviceType,
+            latestDeployment: latestDeployment
+        )
     }
 }
 

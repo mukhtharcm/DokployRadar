@@ -369,7 +369,7 @@ struct MainMenuView: View {
                     Image(systemName: "magnifyingglass")
                         .foregroundStyle(.tertiary)
                         .font(.system(size: 12))
-                    TextField("Search apps…", text: $searchText)
+                    TextField("Search services…", text: $searchText)
                         .textFieldStyle(.plain)
                         .font(.system(size: 13))
                     if !searchText.isEmpty {
@@ -440,7 +440,7 @@ struct MainMenuView: View {
                 isActive: store.failedCount > 0
             )
             StatCard(
-                title: "Total Apps",
+                title: "Total Services",
                 value: store.allEntries.count,
                 icon: "square.stack.3d.up",
                 color: .secondary,
@@ -490,7 +490,7 @@ struct MainMenuView: View {
 
             Spacer()
 
-            Text("\(dashboardFilteredEntries.count) apps")
+            Text("\(dashboardFilteredEntries.count) services")
                 .font(.system(size: 11))
                 .foregroundStyle(.tertiary)
         }
@@ -549,7 +549,7 @@ struct MainMenuView: View {
                     SidebarRow(
                         icon: "square.grid.2x2",
                         title: "All Instances",
-                        subtitle: "\(store.allEntries.count) apps total",
+                        subtitle: "\(store.allEntries.count) services total",
                         isSelected: selectedInstanceID == nil,
                         badgeCount: store.instanceIssues.count,
                         badgeColor: .orange
@@ -733,7 +733,7 @@ struct MainMenuView: View {
                 Text("All quiet")
                     .font(.system(size: 13, weight: .semibold))
 
-                Text("Active deployments will appear here.")
+                Text("Deploying and recently updated services will appear here.")
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
             }
@@ -789,7 +789,7 @@ struct MainMenuView: View {
             }
 
             VStack(spacing: 4) {
-                Text("No matching applications")
+                Text("No matching services")
                     .font(.headline)
 
                 Text("Try another search term, filter, or instance.")
@@ -975,7 +975,7 @@ private struct MenuEntryRow: View {
                             .font(.system(size: 12, weight: .semibold))
                             .lineLimit(1)
 
-                        Text("\(entry.instanceName) · \(entry.projectName)")
+                        Text("\(entry.typeLabel) · \(entry.instanceName) · \(entry.projectName)")
                             .font(.system(size: 9.5))
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
@@ -1039,13 +1039,12 @@ private struct DashboardEntryRow: View {
                     .padding(.vertical, 8)
 
                 HStack(spacing: 14) {
-                    // App icon
                     ZStack {
                         RoundedRectangle(cornerRadius: 8)
                             .fill(accentColor(for: group).opacity(0.1))
                             .frame(width: 36, height: 36)
 
-                        Image(systemName: iconFor(group: group))
+                        Image(systemName: iconFor(entry: entry))
                             .font(.system(size: 14, weight: .medium))
                             .foregroundStyle(accentColor(for: group))
                     }
@@ -1063,18 +1062,18 @@ private struct DashboardEntryRow: View {
                         }
 
                         HStack(spacing: 4) {
-                            Image(systemName: "server.rack")
+                            Image(systemName: entry.serviceType.symbolName)
                                 .font(.system(size: 9))
                                 .foregroundStyle(.tertiary)
 
-                            Text(entry.instanceName)
+                            Text(entry.typeLabel)
                                 .font(.system(size: 11, weight: .medium))
                                 .foregroundStyle(.secondary)
 
                             Text("·")
                                 .foregroundStyle(.quaternary)
 
-                            Text("\(entry.projectName) / \(entry.environmentName)")
+                            Text("\(entry.instanceName) · \(entry.projectName) / \(entry.environmentName)")
                                 .font(.system(size: 11))
                                 .foregroundStyle(.tertiary)
                         }
@@ -1096,7 +1095,7 @@ private struct DashboardEntryRow: View {
                                 .foregroundStyle(.tertiary)
                                 .lineLimit(1)
                         } else {
-                            Text("No deployments")
+                            Text("No deployment history")
                                 .font(.system(size: 10))
                                 .foregroundStyle(.quaternary)
                         }
@@ -1136,13 +1135,8 @@ private struct DashboardEntryRow: View {
         }
     }
 
-    private func iconFor(group: MonitoredApplicationGroup) -> String {
-        switch group {
-        case .deploying: return "arrow.triangle.2.circlepath"
-        case .recent: return "checkmark.circle"
-        case .failed: return "exclamationmark.triangle"
-        case .steady: return "app.dashed"
-        }
+    private func iconFor(entry: MonitoredApplication) -> String {
+        entry.serviceType.symbolName
     }
 }
 

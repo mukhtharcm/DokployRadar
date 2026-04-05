@@ -14,7 +14,9 @@ final class DokployRadarTests: XCTestCase {
             environmentName: "Prod",
             applicationId: "app-1",
             name: "API",
+            appName: nil,
             applicationStatus: .running,
+            serviceType: .application,
             latestDeployment: nil
         )
 
@@ -27,7 +29,9 @@ final class DokployRadarTests: XCTestCase {
             environmentName: "Prod",
             applicationId: "app-2",
             name: "Web",
+            appName: nil,
             applicationStatus: .done,
+            serviceType: .application,
             latestDeployment: DokployCentralizedDeployment(
                 deploymentId: "dep-2",
                 title: "Deploy",
@@ -37,7 +41,8 @@ final class DokployRadarTests: XCTestCase {
                 startedAt: nil,
                 finishedAt: "2027-01-15T07:55:00Z",
                 errorMessage: nil,
-                application: nil
+                application: nil,
+                compose: nil
             )
         )
 
@@ -50,7 +55,9 @@ final class DokployRadarTests: XCTestCase {
             environmentName: "Prod",
             applicationId: "app-3",
             name: "Worker",
+            appName: nil,
             applicationStatus: .error,
+            serviceType: .application,
             latestDeployment: nil
         )
 
@@ -187,7 +194,8 @@ final class DokployRadarTests: XCTestCase {
             startedAt: nil,
             finishedAt: "2027-01-15T07:55:00Z",
             errorMessage: nil,
-            application: nil
+            application: nil,
+            compose: nil
         )
 
         let entry = MonitoredApplication(
@@ -199,7 +207,9 @@ final class DokployRadarTests: XCTestCase {
             environmentName: "Prod",
             applicationId: "app-\(instance.id.uuidString)",
             name: "API",
+            appName: nil,
             applicationStatus: .done,
+            serviceType: .application,
             latestDeployment: deployment
         )
 

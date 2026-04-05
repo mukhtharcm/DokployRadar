@@ -64,6 +64,49 @@ enum DokployDeploymentStatus: String, Codable {
     case cancelled
 }
 
+enum DokployServiceType: String, Codable, CaseIterable {
+    case application
+    case compose
+    case mariadb
+    case mongo
+    case mysql
+    case postgres
+    case redis
+    case libsql
+
+    var displayName: String {
+        switch self {
+        case .application:
+            return "Application"
+        case .compose:
+            return "Compose"
+        case .mariadb:
+            return "MariaDB"
+        case .mongo:
+            return "MongoDB"
+        case .mysql:
+            return "MySQL"
+        case .postgres:
+            return "PostgreSQL"
+        case .redis:
+            return "Redis"
+        case .libsql:
+            return "LibSQL"
+        }
+    }
+
+    var symbolName: String {
+        switch self {
+        case .application:
+            return "app.fill"
+        case .compose:
+            return "shippingbox.fill"
+        case .mariadb, .mongo, .mysql, .postgres, .redis, .libsql:
+            return "cylinder.fill"
+        }
+    }
+}
+
 struct DokployProject: Decodable {
     let projectId: String
     let name: String
@@ -75,12 +118,122 @@ struct DokployEnvironment: Decodable {
     let name: String
     let isDefault: Bool?
     let applications: [DokployApplicationReference]
+    let mariadb: [DokployMariaDBReference]
+    let mongo: [DokployMongoReference]
+    let mysql: [DokployMySQLReference]
+    let postgres: [DokployPostgresReference]
+    let redis: [DokployRedisReference]
+    let compose: [DokployComposeReference]
+    let libsql: [DokployLibSQLReference]
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        environmentId = try container.decode(String.self, forKey: .environmentId)
+        name = try container.decode(String.self, forKey: .name)
+        isDefault = try container.decodeIfPresent(Bool.self, forKey: .isDefault)
+        applications = try container.decodeIfPresent([DokployApplicationReference].self, forKey: .applications) ?? []
+        mariadb = try container.decodeIfPresent([DokployMariaDBReference].self, forKey: .mariadb) ?? []
+        mongo = try container.decodeIfPresent([DokployMongoReference].self, forKey: .mongo) ?? []
+        mysql = try container.decodeIfPresent([DokployMySQLReference].self, forKey: .mysql) ?? []
+        postgres = try container.decodeIfPresent([DokployPostgresReference].self, forKey: .postgres) ?? []
+        redis = try container.decodeIfPresent([DokployRedisReference].self, forKey: .redis) ?? []
+        compose = try container.decodeIfPresent([DokployComposeReference].self, forKey: .compose) ?? []
+        libsql = try container.decodeIfPresent([DokployLibSQLReference].self, forKey: .libsql) ?? []
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case environmentId
+        case name
+        case isDefault
+        case applications
+        case mariadb
+        case mongo
+        case mysql
+        case postgres
+        case redis
+        case compose
+        case libsql
+    }
 }
 
 struct DokployApplicationReference: Decodable {
     let applicationId: String
     let name: String
+    let appName: String?
+    let description: String?
+    let createdAt: String?
     let applicationStatus: DokployApplicationStatus
+    let serverId: String?
+}
+
+struct DokployComposeReference: Decodable {
+    let composeId: String
+    let name: String
+    let appName: String?
+    let description: String?
+    let createdAt: String?
+    let composeStatus: DokployApplicationStatus
+    let serverId: String?
+}
+
+struct DokployMariaDBReference: Decodable {
+    let mariadbId: String
+    let name: String?
+    let appName: String?
+    let description: String?
+    let createdAt: String?
+    let applicationStatus: DokployApplicationStatus?
+    let serverId: String?
+}
+
+struct DokployMongoReference: Decodable {
+    let mongoId: String
+    let name: String?
+    let appName: String?
+    let description: String?
+    let createdAt: String?
+    let applicationStatus: DokployApplicationStatus?
+    let serverId: String?
+}
+
+struct DokployMySQLReference: Decodable {
+    let mysqlId: String
+    let name: String?
+    let appName: String?
+    let description: String?
+    let createdAt: String?
+    let applicationStatus: DokployApplicationStatus?
+    let serverId: String?
+}
+
+struct DokployPostgresReference: Decodable {
+    let postgresId: String
+    let name: String?
+    let appName: String?
+    let description: String?
+    let createdAt: String?
+    let applicationStatus: DokployApplicationStatus?
+    let serverId: String?
+}
+
+struct DokployRedisReference: Decodable {
+    let redisId: String
+    let name: String?
+    let appName: String?
+    let description: String?
+    let createdAt: String?
+    let applicationStatus: DokployApplicationStatus?
+    let serverId: String?
+}
+
+struct DokployLibSQLReference: Decodable {
+    let libsqlId: String
+    let name: String?
+    let appName: String?
+    let description: String?
+    let createdAt: String?
+    let applicationStatus: DokployApplicationStatus?
+    let serverId: String?
 }
 
 struct DokployCentralizedDeployment: Decodable, Equatable {
@@ -93,10 +246,18 @@ struct DokployCentralizedDeployment: Decodable, Equatable {
     let finishedAt: String?
     let errorMessage: String?
     let application: DokployCentralizedApplication?
+    let compose: DokployCentralizedCompose?
 }
 
 struct DokployCentralizedApplication: Decodable, Equatable {
     let applicationId: String
+    let name: String
+    let appName: String
+    let environment: DokployCentralizedEnvironment
+}
+
+struct DokployCentralizedCompose: Decodable, Equatable {
+    let composeId: String
     let name: String
     let appName: String
     let environment: DokployCentralizedEnvironment
@@ -135,13 +296,19 @@ struct MonitoredApplication: Identifiable, Equatable {
     let environmentName: String
     let applicationId: String
     let name: String
+    let appName: String?
     let applicationStatus: DokployApplicationStatus
+    let serviceType: DokployServiceType
     let latestDeployment: DokployCentralizedDeployment?
 
     var lastActivityDate: Date? {
         latestDeployment?.finishedAt.flatMap(DokployDateParser.parse)
             ?? latestDeployment?.startedAt.flatMap(DokployDateParser.parse)
             ?? latestDeployment.flatMap { DokployDateParser.parse($0.createdAt) }
+    }
+
+    var typeLabel: String {
+        serviceType.displayName
     }
 
     func group(now: Date) -> MonitoredApplicationGroup {
@@ -260,6 +427,10 @@ enum DokploySorter {
             let rightDate = rhs.lastActivityDate ?? .distantPast
             if leftDate != rightDate {
                 return leftDate > rightDate
+            }
+
+            if lhs.serviceType != rhs.serviceType {
+                return lhs.serviceType.displayName.localizedCaseInsensitiveCompare(rhs.serviceType.displayName) == .orderedAscending
             }
 
             if lhs.instanceName != rhs.instanceName {

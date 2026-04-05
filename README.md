@@ -3,7 +3,7 @@
 A native macOS menu bar app for monitoring multiple Dokploy instances.
 
 - Add one or more Dokploy instances with API tokens
-- See deploying and recently deployed apps at the top of the menu bar list
+- See deploying and recently updated services at the top of the menu bar list
 - Open the companion app window for the full dashboard
 
 ## Development

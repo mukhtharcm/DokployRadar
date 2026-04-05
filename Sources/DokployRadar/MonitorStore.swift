@@ -84,7 +84,15 @@ final class MonitorStore: ObservableObject {
         }
 
         return baseEntries.filter { entry in
-            [entry.name, entry.projectName, entry.environmentName, entry.instanceName, entry.instanceHost]
+            [
+                entry.name,
+                entry.appName ?? "",
+                entry.projectName,
+                entry.environmentName,
+                entry.instanceName,
+                entry.instanceHost,
+                entry.typeLabel
+            ]
                 .contains { $0.localizedCaseInsensitiveContains(trimmed) }
         }
     }
