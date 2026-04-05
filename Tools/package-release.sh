@@ -136,7 +136,7 @@ sed \
     "$plist_template" > "$app_path/Contents/Info.plist"
 
 if [[ -z "${SIGNING_IDENTITY:-}" ]]; then
-    identities="$(security find-identity -v -p codesigning 2>/dev/null | rg 'Developer ID Application:' || true)"
+    identities="$(security find-identity -v -p codesigning 2>/dev/null | grep 'Developer ID Application:' || true)"
     identity_count="$(printf '%s\n' "$identities" | sed '/^$/d' | wc -l | tr -d ' ')"
 
     if [[ "$identity_count" == "1" ]]; then
