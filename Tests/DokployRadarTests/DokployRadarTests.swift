@@ -219,12 +219,20 @@ final class DokployRadarTests: XCTestCase {
         preferences.recentWindow = .sixHours
         preferences.menuBarItemLimit = .twelve
         preferences.showsSteadyServicesInMenu = true
+        preferences.notificationsEnabled = true
+        preferences.notifyOnDeploymentStart = true
+        preferences.notifyOnDeploymentSuccess = true
+        preferences.notifyOnDeploymentFailure = false
 
         let reloaded = AppPreferences(userDefaults: defaults)
         XCTAssertEqual(reloaded.refreshInterval, .fiveMinutes)
         XCTAssertEqual(reloaded.recentWindow, .sixHours)
         XCTAssertEqual(reloaded.menuBarItemLimit, .twelve)
         XCTAssertTrue(reloaded.showsSteadyServicesInMenu)
+        XCTAssertTrue(reloaded.notificationsEnabled)
+        XCTAssertTrue(reloaded.notifyOnDeploymentStart)
+        XCTAssertTrue(reloaded.notifyOnDeploymentSuccess)
+        XCTAssertFalse(reloaded.notifyOnDeploymentFailure)
     }
 
     @MainActor
@@ -273,6 +281,112 @@ final class DokployRadarTests: XCTestCase {
 
         preferences.showsSteadyServicesInMenu = true
         XCTAssertEqual(store.menuEntries.map(\.name), ["API", "Worker", "Web", "Database"])
+    }
+
+    func testNotificationDetectorSkipsInitialObservedState() {
+        let entry = Self.makeNotificationEntry(
+            serviceID: "svc-1",
+            name: "API",
+            instanceName: "Alpha",
+            instanceID: UUID(),
+            status: .error,
+            deploymentID: "dep-1",
+            title: "Deploy API",
+            errorMessage: "Failed build"
+        )
+        let snapshot = InstanceSnapshot(
+            instance: DokployInstance(name: "Alpha", baseURLString: "https://alpha.example.com", apiToken: "token"),
+            entries: [entry],
+            refreshedAt: Date(),
+            errorMessage: nil
+        )
+
+        let events = DeploymentNotificationDetector.events(
+            from: [snapshot],
+            previousStates: [:],
+            rules: NotificationRules(
+                isEnabled: true,
+                notifyOnStart: true,
+                notifyOnSuccess: true,
+                notifyOnFailure: true
+            )
+        )
+
+        XCTAssertTrue(events.isEmpty)
+    }
+
+    func testNotificationDetectorEmitsFailureEventForStateTransition() {
+        let instanceID = UUID()
+        let previousEntry = Self.makeNotificationEntry(
+            serviceID: "svc-1",
+            name: "API",
+            instanceName: "Alpha",
+            instanceID: instanceID,
+            status: .running,
+            deploymentID: "dep-2",
+            title: "Deploy API"
+        )
+        let currentEntry = Self.makeNotificationEntry(
+            serviceID: "svc-1",
+            name: "API",
+            instanceName: "Alpha",
+            instanceID: instanceID,
+            status: .error,
+            deploymentID: "dep-2",
+            title: "Deploy API",
+            errorMessage: "Failed build"
+        )
+
+        let previousStates = [previousEntry.id: ServiceNotificationState(entry: previousEntry)]
+        let snapshot = InstanceSnapshot(
+            instance: DokployInstance(name: "Alpha", baseURLString: "https://alpha.example.com", apiToken: "token"),
+            entries: [currentEntry],
+            refreshedAt: Date(),
+            errorMessage: nil
+        )
+
+        let events = DeploymentNotificationDetector.events(
+            from: [snapshot],
+            previousStates: previousStates,
+            rules: NotificationRules(
+                isEnabled: true,
+                notifyOnStart: false,
+                notifyOnSuccess: false,
+                notifyOnFailure: true
+            )
+        )
+
+        XCTAssertEqual(events.count, 1)
+        XCTAssertEqual(events.first?.kind, .failed)
+        XCTAssertEqual(events.first?.title, "API deployment failed")
+    }
+
+    func testNotificationDetectorPreservesPreviousStateForErroredSnapshots() {
+        let instanceID = UUID()
+        let previousEntry = Self.makeNotificationEntry(
+            serviceID: "svc-1",
+            name: "API",
+            instanceName: "Alpha",
+            instanceID: instanceID,
+            status: .running,
+            deploymentID: "dep-2",
+            title: "Deploy API"
+        )
+        let previousStates = [previousEntry.id: ServiceNotificationState(entry: previousEntry)]
+        let erroredSnapshot = InstanceSnapshot(
+            instance: DokployInstance(name: "Alpha", baseURLString: "https://alpha.example.com", apiToken: "token"),
+            entries: [previousEntry],
+            refreshedAt: Date(),
+            errorMessage: "Timeout"
+        )
+
+        let nextStates = DeploymentNotificationDetector.updatedStates(
+            from: [erroredSnapshot],
+            previousStates: previousStates,
+            activeInstanceIDs: [instanceID]
+        )
+
+        XCTAssertEqual(nextStates, previousStates)
     }
 
     private static func makeSnapshot(for instance: DokployInstance, at date: Date) -> InstanceSnapshot {
@@ -424,5 +538,42 @@ final class DokployRadarTests: XCTestCase {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime]
         return formatter.string(from: date)
+    }
+
+    private static func makeNotificationEntry(
+        serviceID: String,
+        name: String,
+        instanceName: String,
+        instanceID: UUID,
+        status: DokployDeploymentStatus,
+        deploymentID: String,
+        title: String,
+        errorMessage: String? = nil
+    ) -> MonitoredApplication {
+        MonitoredApplication(
+            id: serviceID,
+            instanceID: instanceID,
+            instanceName: instanceName,
+            instanceHost: "alpha.example.com",
+            projectName: "Core",
+            environmentName: "Prod",
+            applicationId: serviceID,
+            name: name,
+            appName: nil,
+            applicationStatus: status == .error ? .error : .running,
+            serviceType: .application,
+            latestDeployment: DokployCentralizedDeployment(
+                deploymentId: deploymentID,
+                title: title,
+                description: nil,
+                status: status,
+                createdAt: isoString(for: Date()),
+                startedAt: isoString(for: Date().addingTimeInterval(-60)),
+                finishedAt: status == .running ? nil : isoString(for: Date()),
+                errorMessage: errorMessage,
+                application: nil,
+                compose: nil
+            )
+        )
     }
 }

@@ -4,6 +4,7 @@ import Foundation
 @MainActor
 final class MonitorStore: ObservableObject {
     typealias SnapshotFetcher = @Sendable (DokployInstance) async throws -> InstanceSnapshot
+    typealias NotificationEmitter = @MainActor @Sendable ([DeploymentNotificationEvent]) -> Void
 
     let preferences: AppPreferences
 
@@ -17,14 +18,17 @@ final class MonitorStore: ObservableObject {
     private let encoder = JSONEncoder()
     private let decoder = JSONDecoder()
     private let snapshotFetcher: SnapshotFetcher
+    private let notificationEmitter: NotificationEmitter
     private var refreshTask: Task<Void, Never>?
     private var cancellables: Set<AnyCancellable> = []
+    private var notificationStates: [String: ServiceNotificationState] = [:]
 
     init(
         fileManager: FileManager = .default,
         storageURL: URL? = nil,
         preferences: AppPreferences = AppPreferences(),
-        snapshotFetcher: SnapshotFetcher? = nil
+        snapshotFetcher: SnapshotFetcher? = nil,
+        notificationEmitter: NotificationEmitter? = nil
     ) {
         self.fileManager = fileManager
         self.storageURL = storageURL ?? Self.defaultStorageURL(fileManager: fileManager)
@@ -32,6 +36,7 @@ final class MonitorStore: ObservableObject {
         self.snapshotFetcher = snapshotFetcher ?? { instance in
             try await DokployAPIClient(instance: instance).fetchSnapshot()
         }
+        self.notificationEmitter = notificationEmitter ?? { _ in }
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         bindPreferences()
         load()
@@ -153,6 +158,7 @@ final class MonitorStore: ObservableObject {
                 }
                 .sorted { $0.instance.name.localizedCaseInsensitiveCompare($1.instance.name) == .orderedAscending }
             lastRefresh = refreshedAt
+            notificationStates = [:]
             return
         }
 
@@ -195,10 +201,26 @@ final class MonitorStore: ObservableObject {
                 )
             }
 
+        let activeInstanceIDs = Set(activeInstances.map(\.id))
+        let notificationEvents = DeploymentNotificationDetector.events(
+            from: refreshedSnapshots,
+            previousStates: notificationStates,
+            rules: preferences.notificationRules
+        )
+        notificationStates = DeploymentNotificationDetector.updatedStates(
+            from: refreshedSnapshots,
+            previousStates: notificationStates,
+            activeInstanceIDs: activeInstanceIDs
+        )
+
         snapshots = (refreshedSnapshots + disabledSnapshots)
             .sorted { $0.instance.name.localizedCaseInsensitiveCompare($1.instance.name) == .orderedAscending }
         lastRefresh = Date()
         isRefreshing = false
+
+        if !notificationEvents.isEmpty {
+            notificationEmitter(notificationEvents)
+        }
     }
 
     func saveInstance(
@@ -241,6 +263,7 @@ final class MonitorStore: ObservableObject {
     func deleteInstance(_ instance: DokployInstance) {
         instances.removeAll { $0.id == instance.id }
         snapshots.removeAll { $0.instance.id == instance.id }
+        notificationStates = notificationStates.filter { $0.value.instanceID != instance.id }
         persist()
     }
 

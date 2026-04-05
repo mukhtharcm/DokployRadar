@@ -4,7 +4,13 @@ import SwiftUI
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     let preferences = AppPreferences()
-    private lazy var store = MonitorStore(preferences: preferences)
+    let notificationService = NotificationService()
+    private lazy var store = MonitorStore(
+        preferences: preferences,
+        notificationEmitter: { [weak self] events in
+            self?.notificationService.deliver(events)
+        }
+    )
     private let popover = NSPopover()
     private var statusItem: NSStatusItem?
     private var mainWindow: NSWindow?
@@ -14,7 +20,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         NSApp.setActivationPolicy(.accessory)
         configureStatusItem()
         configurePopover()
+        Task { [weak self] in
+            await self?.notificationService.refreshAuthorizationStatus()
+        }
         store.startMonitoring()
+        DispatchQueue.main.async { [weak self] in
+            self?.showMainWindow()
+        }
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -133,7 +145,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     private func makeSettingsWindow() -> NSWindow {
         let hostingController = NSHostingController(
-            rootView: PreferencesView(preferences: preferences)
+            rootView: PreferencesView(
+                preferences: preferences,
+                notificationService: notificationService
+            )
         )
         let window = NSWindow(contentViewController: hostingController)
         window.title = "Settings"

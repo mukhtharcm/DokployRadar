@@ -2,6 +2,7 @@ import SwiftUI
 
 struct PreferencesView: View {
     @ObservedObject var preferences: AppPreferences
+    @ObservedObject var notificationService: NotificationService
 
     var body: some View {
         VStack(spacing: 0) {
@@ -82,6 +83,76 @@ struct PreferencesView: View {
                         }
                     }
 
+                    PreferenceSection(
+                        title: "Notifications",
+                        icon: "bell.badge",
+                        color: .red
+                    ) {
+                        VStack(spacing: 14) {
+                            PreferenceRow(
+                                icon: "bell",
+                                title: "Desktop notifications",
+                                description: "Show macOS alerts for important deployment changes"
+                            ) {
+                                Toggle("", isOn: $preferences.notificationsEnabled)
+                                    .labelsHidden()
+                                    .toggleStyle(.switch)
+                                    .controlSize(.small)
+                            }
+
+                            Divider()
+                                .padding(.horizontal, 4)
+
+                            PreferenceRow(
+                                icon: "exclamationmark.triangle",
+                                title: "Deployment failures",
+                                description: "Recommended. Alert when Dokploy marks a deployment as failed"
+                            ) {
+                                Toggle("", isOn: $preferences.notifyOnDeploymentFailure)
+                                    .labelsHidden()
+                                    .toggleStyle(.switch)
+                                    .controlSize(.small)
+                            }
+                            .opacity(preferences.notificationsEnabled ? 1 : 0.5)
+                            .disabled(!preferences.notificationsEnabled)
+
+                            Divider()
+                                .padding(.horizontal, 4)
+
+                            PreferenceRow(
+                                icon: "checkmark.circle",
+                                title: "Deployment successes",
+                                description: "Alert when a deployment completes successfully"
+                            ) {
+                                Toggle("", isOn: $preferences.notifyOnDeploymentSuccess)
+                                    .labelsHidden()
+                                    .toggleStyle(.switch)
+                                    .controlSize(.small)
+                            }
+                            .opacity(preferences.notificationsEnabled ? 1 : 0.5)
+                            .disabled(!preferences.notificationsEnabled)
+
+                            Divider()
+                                .padding(.horizontal, 4)
+
+                            PreferenceRow(
+                                icon: "play.circle",
+                                title: "Deployment starts",
+                                description: "Alert when Dokploy begins a new deployment"
+                            ) {
+                                Toggle("", isOn: $preferences.notifyOnDeploymentStart)
+                                    .labelsHidden()
+                                    .toggleStyle(.switch)
+                                    .controlSize(.small)
+                            }
+                            .opacity(preferences.notificationsEnabled ? 1 : 0.5)
+                            .disabled(!preferences.notificationsEnabled)
+
+                            notificationStatusCard
+                                .padding(.top, 6)
+                        }
+                    }
+
                     // Menu Bar section
                     PreferenceSection(
                         title: "Menu Bar",
@@ -135,6 +206,107 @@ struct PreferencesView: View {
         }
         .frame(minHeight: 440)
         .frame(width: 520)
+        .task {
+            await notificationService.refreshAuthorizationStatus()
+        }
+        .onChange(of: preferences.notificationsEnabled) { isEnabled in
+            guard isEnabled else {
+                return
+            }
+
+            Task {
+                _ = await notificationService.requestAuthorizationIfNeeded()
+            }
+        }
+    }
+
+    private var notificationStatusCard: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: notificationStatusIcon)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(notificationStatusColor)
+                .frame(width: 16)
+                .padding(.top, 1)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(notificationStatusTitle)
+                    .font(.system(size: 12, weight: .semibold))
+
+                Text(notificationService.statusSummary)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                if preferences.notificationsEnabled && notificationService.authorizationStatus == .denied {
+                    Button("Open System Settings") {
+                        notificationService.openSystemNotificationSettings()
+                    }
+                    .buttonStyle(.link)
+                    .font(.system(size: 11, weight: .medium))
+                }
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 10)
+                .fill(notificationStatusColor.opacity(0.05))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10)
+                        .strokeBorder(notificationStatusColor.opacity(0.12), lineWidth: 0.5)
+                )
+        )
+    }
+
+    private var notificationStatusTitle: String {
+        guard notificationService.isAvailable else {
+            return "Unavailable in direct runs"
+        }
+
+        switch notificationService.authorizationStatus {
+        case .authorized, .provisional, .ephemeral:
+            return "Notifications are ready"
+        case .notDetermined:
+            return "Permission required"
+        case .denied:
+            return "Notifications are blocked"
+        @unknown default:
+            return "Notification status unknown"
+        }
+    }
+
+    private var notificationStatusIcon: String {
+        guard notificationService.isAvailable else {
+            return "bell.slash"
+        }
+
+        switch notificationService.authorizationStatus {
+        case .authorized, .provisional, .ephemeral:
+            return "bell.badge.fill"
+        case .notDetermined:
+            return "bell"
+        case .denied:
+            return "bell.slash.fill"
+        @unknown default:
+            return "bell"
+        }
+    }
+
+    private var notificationStatusColor: Color {
+        guard notificationService.isAvailable else {
+            return .secondary
+        }
+
+        switch notificationService.authorizationStatus {
+        case .authorized, .provisional, .ephemeral:
+            return .green
+        case .notDetermined:
+            return .orange
+        case .denied:
+            return .red
+        @unknown default:
+            return .secondary
+        }
     }
 }
 

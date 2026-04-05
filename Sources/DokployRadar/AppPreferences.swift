@@ -91,6 +91,10 @@ final class AppPreferences: ObservableObject {
         static let recentWindow = "dokployradar.preferences.recentWindow"
         static let menuBarItemLimit = "dokployradar.preferences.menuBarItemLimit"
         static let showsSteadyServicesInMenu = "dokployradar.preferences.showsSteadyServicesInMenu"
+        static let notificationsEnabled = "dokployradar.preferences.notificationsEnabled"
+        static let notifyOnDeploymentStart = "dokployradar.preferences.notifyOnDeploymentStart"
+        static let notifyOnDeploymentSuccess = "dokployradar.preferences.notifyOnDeploymentSuccess"
+        static let notifyOnDeploymentFailure = "dokployradar.preferences.notifyOnDeploymentFailure"
     }
 
     private let userDefaults: UserDefaults
@@ -119,6 +123,30 @@ final class AppPreferences: ObservableObject {
         }
     }
 
+    @Published var notificationsEnabled: Bool {
+        didSet {
+            userDefaults.set(notificationsEnabled, forKey: Keys.notificationsEnabled)
+        }
+    }
+
+    @Published var notifyOnDeploymentStart: Bool {
+        didSet {
+            userDefaults.set(notifyOnDeploymentStart, forKey: Keys.notifyOnDeploymentStart)
+        }
+    }
+
+    @Published var notifyOnDeploymentSuccess: Bool {
+        didSet {
+            userDefaults.set(notifyOnDeploymentSuccess, forKey: Keys.notifyOnDeploymentSuccess)
+        }
+    }
+
+    @Published var notifyOnDeploymentFailure: Bool {
+        didSet {
+            userDefaults.set(notifyOnDeploymentFailure, forKey: Keys.notifyOnDeploymentFailure)
+        }
+    }
+
     init(userDefaults: UserDefaults = .standard) {
         self.userDefaults = userDefaults
         refreshInterval = Self.load(
@@ -141,6 +169,26 @@ final class AppPreferences: ObservableObject {
         } else {
             showsSteadyServicesInMenu = userDefaults.bool(forKey: Keys.showsSteadyServicesInMenu)
         }
+        notificationsEnabled = Self.loadBoolean(
+            key: Keys.notificationsEnabled,
+            from: userDefaults,
+            defaultValue: false
+        )
+        notifyOnDeploymentStart = Self.loadBoolean(
+            key: Keys.notifyOnDeploymentStart,
+            from: userDefaults,
+            defaultValue: false
+        )
+        notifyOnDeploymentSuccess = Self.loadBoolean(
+            key: Keys.notifyOnDeploymentSuccess,
+            from: userDefaults,
+            defaultValue: false
+        )
+        notifyOnDeploymentFailure = Self.loadBoolean(
+            key: Keys.notifyOnDeploymentFailure,
+            from: userDefaults,
+            defaultValue: true
+        )
     }
 
     var recentWindowInterval: TimeInterval {
@@ -149,6 +197,15 @@ final class AppPreferences: ObservableObject {
 
     var menuBarItemLimitValue: Int {
         menuBarItemLimit.rawValue
+    }
+
+    var notificationRules: NotificationRules {
+        NotificationRules(
+            isEnabled: notificationsEnabled,
+            notifyOnStart: notifyOnDeploymentStart,
+            notifyOnSuccess: notifyOnDeploymentSuccess,
+            notifyOnFailure: notifyOnDeploymentFailure
+        )
     }
 
     private static func load<T: RawRepresentable>(
@@ -170,5 +227,16 @@ final class AppPreferences: ObservableObject {
     ) -> T where T.RawValue == Int {
         let rawValue = userDefaults.integer(forKey: key)
         return T(rawValue: rawValue) ?? defaultValue
+    }
+
+    private static func loadBoolean(
+        key: String,
+        from userDefaults: UserDefaults,
+        defaultValue: Bool
+    ) -> Bool {
+        guard userDefaults.object(forKey: key) != nil else {
+            return defaultValue
+        }
+        return userDefaults.bool(forKey: key)
     }
 }
