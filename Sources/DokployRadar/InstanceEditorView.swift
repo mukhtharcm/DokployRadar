@@ -1,5 +1,12 @@
 import SwiftUI
 
+private enum ConnectionTestState {
+    case idle
+    case testing
+    case success(DokployConnectionSummary)
+    case failure(String)
+}
+
 struct InstanceEditorView: View {
     let title: String
     @ObservedObject var store: MonitorStore
@@ -11,6 +18,7 @@ struct InstanceEditorView: View {
     @State private var name: String
     @State private var baseURLString: String
     @State private var apiToken: String
+    @State private var connectionTestState: ConnectionTestState = .idle
 
     private enum Field {
         case name
@@ -88,6 +96,13 @@ struct InstanceEditorView: View {
             }
             .padding(.bottom, 18)
 
+            if case .idle = connectionTestState {
+                EmptyView()
+            } else {
+                connectionStatusBanner
+                    .padding(.bottom, 18)
+            }
+
             Divider()
                 .padding(.bottom, 14)
 
@@ -98,6 +113,21 @@ struct InstanceEditorView: View {
                 }
                 .keyboardShortcut(.cancelAction)
                 .buttonStyle(.bordered)
+
+                Button {
+                    testConnection()
+                } label: {
+                    HStack(spacing: 6) {
+                        if case .testing = connectionTestState {
+                            ProgressView()
+                                .controlSize(.small)
+                        }
+                        Text("Test Connection")
+                    }
+                    .frame(minWidth: 110)
+                }
+                .buttonStyle(.bordered)
+                .disabled(isTestDisabled)
 
                 Spacer()
 
@@ -123,11 +153,141 @@ struct InstanceEditorView: View {
         .onAppear {
             focusedField = .name
         }
+        .onChange(of: name) { _ in
+            resetConnectionTestState()
+        }
+        .onChange(of: baseURLString) { _ in
+            resetConnectionTestState()
+        }
+        .onChange(of: apiToken) { _ in
+            resetConnectionTestState()
+        }
     }
 
     private var isSaveDisabled: Bool {
         name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             || baseURLString.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             || apiToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private var isTestDisabled: Bool {
+        isSaveDisabled || {
+            if case .testing = connectionTestState {
+                return true
+            }
+            return false
+        }()
+    }
+
+    @ViewBuilder
+    private var connectionStatusBanner: some View {
+        switch connectionTestState {
+        case .idle:
+            EmptyView()
+        case .testing:
+            connectionBanner(
+                title: "Testing connection…",
+                message: "Dokploy Radar is checking the URL, token, and deployment API.",
+                color: .accentColor,
+                icon: "arrow.triangle.2.circlepath"
+            )
+        case .success(let summary):
+            connectionBanner(
+                title: "Connection successful",
+                message: successMessage(for: summary),
+                color: .green,
+                icon: "checkmark.circle.fill"
+            )
+        case .failure(let message):
+            connectionBanner(
+                title: "Connection failed",
+                message: message,
+                color: .red,
+                icon: "xmark.octagon.fill"
+            )
+        }
+    }
+
+    private func connectionBanner(title: String, message: String, color: Color, icon: String) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: icon)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(color)
+                .padding(.top, 1)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                    .font(.system(size: 11, weight: .semibold))
+                Text(message)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 10)
+                .fill(color.opacity(0.07))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10)
+                        .strokeBorder(color.opacity(0.18), lineWidth: 1)
+                )
+        )
+    }
+
+    private func successMessage(for summary: DokployConnectionSummary) -> String {
+        var fragments = ["Connected to \(summary.projectCount) project\(summary.projectCount == 1 ? "" : "s")"]
+        fragments.append("\(summary.serviceCount) service\(summary.serviceCount == 1 ? "" : "s") visible to this token")
+
+        if summary.deployingCount > 0 {
+            fragments.append("\(summary.deployingCount) deploying")
+        }
+
+        if summary.failedCount > 0 {
+            fragments.append("\(summary.failedCount) failing")
+        }
+
+        return fragments.joined(separator: " • ")
+    }
+
+    private func resetConnectionTestState() {
+        if case .idle = connectionTestState {
+            return
+        }
+
+        connectionTestState = .idle
+    }
+
+    private func testConnection() {
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedURL = baseURLString.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedToken = apiToken.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !trimmedName.isEmpty, !trimmedURL.isEmpty, !trimmedToken.isEmpty else {
+            return
+        }
+
+        let draftInstance = DokployInstance(
+            id: existingInstance?.id ?? UUID(),
+            name: trimmedName,
+            baseURLString: trimmedURL,
+            apiToken: trimmedToken,
+            isEnabled: existingInstance?.isEnabled ?? true
+        )
+
+        connectionTestState = .testing
+
+        Task {
+            do {
+                let summary = try await DokployAPIClient(instance: draftInstance).testConnection()
+                await MainActor.run {
+                    connectionTestState = .success(summary)
+                }
+            } catch {
+                await MainActor.run {
+                    connectionTestState = .failure(error.localizedDescription)
+                }
+            }
+        }
     }
 }

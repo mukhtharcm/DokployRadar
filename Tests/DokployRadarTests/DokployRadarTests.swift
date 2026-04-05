@@ -184,6 +184,27 @@ final class DokployRadarTests: XCTestCase {
         XCTAssertEqual(endpoint.absoluteString, "https://example.com/dokploy/api/project.all")
     }
 
+    func testCloudflare403ErrorMessageIsFriendly() {
+        let error = DokployAPIError.requestFailed(
+            statusCode: 403,
+            message: "The site owner has blocked access based on your browser's signature."
+        )
+
+        XCTAssertEqual(
+            error.errorDescription,
+            "Cloudflare blocked this request before it reached Dokploy. Allow the app through Cloudflare or relax browser-signature restrictions for the API."
+        )
+    }
+
+    func testTransportTimeoutErrorMessageIsFriendly() {
+        let error = DokployAPIError.transport(URLError(.timedOut))
+
+        XCTAssertEqual(
+            error.errorDescription,
+            "The Dokploy request timed out. The instance may be slow or unreachable."
+        )
+    }
+
     private static func makeSnapshot(for instance: DokployInstance, at date: Date) -> InstanceSnapshot {
         let deployment = DokployCentralizedDeployment(
             deploymentId: "dep-\(instance.id.uuidString)",
