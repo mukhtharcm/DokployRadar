@@ -389,6 +389,100 @@ final class DokployRadarTests: XCTestCase {
         XCTAssertEqual(nextStates, previousStates)
     }
 
+    func testApplicationInspectorParserExtractsRoutingAndRuntimeDetails() {
+        let payload: [String: Any] = [
+            "sourceType": "github",
+            "buildType": "dockerfile",
+            "repository": "mukhtharcm/example-app",
+            "branch": "main",
+            "autoDeploy": true,
+            "isPreviewDeploymentsActive": true,
+            "previewDeployments": [["id": "preview-1"]],
+            "deployments": [["id": "dep-1"], ["id": "dep-2"]],
+            "env": [["key": "TOKEN"], ["key": "URL"]],
+            "mounts": [
+                ["source": "/data/app", "destination": "/app/data"]
+            ],
+            "watchPaths": ["apps/web", "packages/ui"],
+            "domains": [
+                ["domain": "app.example.com"],
+                ["host": "api.example.com"]
+            ],
+            "ports": [
+                ["hostPort": "443", "containerPort": "3000", "protocol": "tcp"]
+            ]
+        ]
+
+        let detail = DokployServiceInspectorParser.applicationDetails(from: payload)
+
+        XCTAssertEqual(detail.sourceType, "Github")
+        XCTAssertEqual(detail.configurationType, "Dockerfile")
+        XCTAssertEqual(detail.repository, "mukhtharcm/example-app")
+        XCTAssertEqual(detail.branch, "main")
+        XCTAssertEqual(detail.autoDeployEnabled, true)
+        XCTAssertEqual(detail.previewDeploymentsEnabled, true)
+        XCTAssertEqual(detail.previewDeploymentCount, 1)
+        XCTAssertEqual(detail.deploymentCount, 2)
+        XCTAssertEqual(detail.environmentVariableCount, 2)
+        XCTAssertEqual(detail.mountCount, 1)
+        XCTAssertEqual(detail.watchPathCount, 2)
+        XCTAssertEqual(detail.domainLabels, ["app.example.com", "api.example.com"])
+        XCTAssertEqual(detail.portLabels, ["443 -> 3000 TCP"])
+        XCTAssertEqual(detail.mountSummaries.first?.title, "/app/data")
+        XCTAssertEqual(detail.mountSummaries.first?.subtitle, "/data/app")
+        XCTAssertEqual(detail.watchPaths, ["apps/web", "packages/ui"])
+    }
+
+    func testComposeInspectorParserIncludesServicesAndRenderedCompose() {
+        let payload: [String: Any] = [
+            "sourceType": "docker",
+            "composeType": "docker-compose",
+            "repository": "mukhtharcm/example-compose",
+            "customGitBranch": "production",
+            "autoDeploy": false,
+            "deployments": [["id": "dep-1"]],
+            "env": [["key": "TZ"]],
+            "mounts": [
+                ["name": "data-volume", "destination": "/data"]
+            ],
+            "watchPaths": ["compose.yml"],
+            "domains": [
+                ["domain": "compose.example.com"]
+            ]
+        ]
+
+        let mountGroups = [
+            DokployComposeServiceMountGroup(
+                id: "web",
+                serviceName: "web",
+                mounts: [
+                    DokployMountSummary(id: "web-1", title: "/var/lib/data", subtitle: "named-volume • volume • rw")
+                ]
+            )
+        ]
+
+        let detail = DokployServiceInspectorParser.composeDetails(
+            from: payload,
+            serviceNames: ["web", "worker"],
+            mountGroups: mountGroups,
+            renderedCompose: "services:\n  web:\n    image: nginx"
+        )
+
+        XCTAssertEqual(detail.sourceType, "Docker")
+        XCTAssertEqual(detail.configurationType, "Docker Compose")
+        XCTAssertEqual(detail.repository, "mukhtharcm/example-compose")
+        XCTAssertEqual(detail.branch, "production")
+        XCTAssertEqual(detail.autoDeployEnabled, false)
+        XCTAssertEqual(detail.deploymentCount, 1)
+        XCTAssertEqual(detail.environmentVariableCount, 1)
+        XCTAssertEqual(detail.mountCount, 1)
+        XCTAssertEqual(detail.watchPathCount, 1)
+        XCTAssertEqual(detail.domainLabels, ["compose.example.com"])
+        XCTAssertEqual(detail.composeServiceNames, ["web", "worker"])
+        XCTAssertEqual(detail.composeMountGroups, mountGroups)
+        XCTAssertTrue(detail.renderedCompose?.contains("services:") == true)
+    }
+
     private static func makeSnapshot(for instance: DokployInstance, at date: Date) -> InstanceSnapshot {
         let deployment = DokployCentralizedDeployment(
             deploymentId: "dep-\(instance.id.uuidString)",

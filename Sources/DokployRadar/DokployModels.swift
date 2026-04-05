@@ -397,6 +397,305 @@ struct DokployDeploymentRecord: Decodable, Equatable, Identifiable {
     }
 }
 
+struct DokployMountSummary: Equatable, Identifiable {
+    let id: String
+    let title: String
+    let subtitle: String?
+}
+
+struct DokployComposeServiceMountGroup: Equatable, Identifiable {
+    let id: String
+    let serviceName: String
+    let mounts: [DokployMountSummary]
+}
+
+struct DokployServiceInspectorData: Equatable {
+    let sourceType: String?
+    let configurationType: String?
+    let repository: String?
+    let branch: String?
+    let autoDeployEnabled: Bool?
+    let previewDeploymentsEnabled: Bool?
+    let previewDeploymentCount: Int?
+    let deploymentCount: Int?
+    let environmentVariableCount: Int
+    let mountCount: Int
+    let watchPathCount: Int
+    let domainLabels: [String]
+    let portLabels: [String]
+    let mountSummaries: [DokployMountSummary]
+    let watchPaths: [String]
+    let composeServiceNames: [String]
+    let composeMountGroups: [DokployComposeServiceMountGroup]
+    let renderedCompose: String?
+
+    var hasSourceSection: Bool {
+        sourceType != nil
+            || configurationType != nil
+            || repository != nil
+            || branch != nil
+            || autoDeployEnabled != nil
+            || previewDeploymentsEnabled != nil
+    }
+
+    var hasRuntimeSection: Bool {
+        deploymentCount != nil
+            || previewDeploymentCount != nil
+            || environmentVariableCount > 0
+            || mountCount > 0
+            || watchPathCount > 0
+            || !portLabels.isEmpty
+            || !watchPaths.isEmpty
+    }
+
+    var hasRoutingSection: Bool {
+        !domainLabels.isEmpty || !portLabels.isEmpty
+    }
+
+    var hasStorageSection: Bool {
+        !mountSummaries.isEmpty || !composeMountGroups.isEmpty
+    }
+
+    var hasComposeInternals: Bool {
+        !composeServiceNames.isEmpty || renderedCompose?.isEmpty == false
+    }
+
+    static func unsupportedMessage(for serviceType: DokployServiceType) -> String {
+        "Dokploy exposes richer inspector data for applications and compose services. \(serviceType.displayName) services are shown here primarily for status monitoring."
+    }
+}
+
+enum DokployServiceInspectorParser {
+    static func applicationDetails(from payload: [String: Any]) -> DokployServiceInspectorData {
+        DokployServiceInspectorData(
+            sourceType: normalizedLabel(payload["sourceType"]),
+            configurationType: normalizedLabel(payload["buildType"]),
+            repository: nonEmptyString(payload["repository"]),
+            branch: firstNonEmptyString(
+                payload["branch"],
+                payload["customGitBranch"],
+                payload["bitbucketBranch"],
+                payload["giteaBranch"],
+                payload["gitlabBranch"]
+            ),
+            autoDeployEnabled: payload["autoDeploy"] as? Bool,
+            previewDeploymentsEnabled: payload["isPreviewDeploymentsActive"] as? Bool,
+            previewDeploymentCount: array(payload["previewDeployments"])?.count,
+            deploymentCount: array(payload["deployments"])?.count,
+            environmentVariableCount: array(payload["env"])?.count ?? 0,
+            mountCount: array(payload["mounts"])?.count ?? 0,
+            watchPathCount: array(payload["watchPaths"])?.count ?? 0,
+            domainLabels: domainLabels(from: payload["domains"]),
+            portLabels: portLabels(from: payload["ports"]),
+            mountSummaries: mountSummaries(from: payload["mounts"]),
+            watchPaths: stringArray(from: payload["watchPaths"]),
+            composeServiceNames: [],
+            composeMountGroups: [],
+            renderedCompose: nil
+        )
+    }
+
+    static func composeDetails(
+        from payload: [String: Any],
+        serviceNames: [String],
+        mountGroups: [DokployComposeServiceMountGroup],
+        renderedCompose: String?
+    ) -> DokployServiceInspectorData {
+        DokployServiceInspectorData(
+            sourceType: normalizedLabel(payload["sourceType"]),
+            configurationType: normalizedLabel(payload["composeType"]),
+            repository: nonEmptyString(payload["repository"]),
+            branch: firstNonEmptyString(
+                payload["branch"],
+                payload["customGitBranch"],
+                payload["bitbucketBranch"],
+                payload["giteaBranch"],
+                payload["gitlabBranch"]
+            ),
+            autoDeployEnabled: payload["autoDeploy"] as? Bool,
+            previewDeploymentsEnabled: nil,
+            previewDeploymentCount: nil,
+            deploymentCount: array(payload["deployments"])?.count,
+            environmentVariableCount: array(payload["env"])?.count ?? 0,
+            mountCount: array(payload["mounts"])?.count ?? 0,
+            watchPathCount: array(payload["watchPaths"])?.count ?? 0,
+            domainLabels: domainLabels(from: payload["domains"]),
+            portLabels: [],
+            mountSummaries: mountSummaries(from: payload["mounts"]),
+            watchPaths: stringArray(from: payload["watchPaths"]),
+            composeServiceNames: serviceNames,
+            composeMountGroups: mountGroups,
+            renderedCompose: nonEmptyString(renderedCompose)
+        )
+    }
+
+    private static func nonEmptyString(_ value: Any?) -> String? {
+        guard let text = value as? String else {
+            return nil
+        }
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private static func firstNonEmptyString(_ values: Any?...) -> String? {
+        for value in values {
+            if let text = nonEmptyString(value) {
+                return text
+            }
+        }
+        return nil
+    }
+
+    private static func array(_ value: Any?) -> [Any]? {
+        value as? [Any]
+    }
+
+    private static func dictionary(_ value: Any?) -> [String: Any]? {
+        value as? [String: Any]
+    }
+
+    private static func stringArray(from value: Any?) -> [String] {
+        guard let values = array(value) else {
+            return []
+        }
+
+        return values.compactMap { element in
+            if let text = nonEmptyString(element) {
+                return text
+            }
+
+            if let dictionary = dictionary(element) {
+                return firstNonEmptyString(
+                    dictionary["path"],
+                    dictionary["name"],
+                    dictionary["value"]
+                )
+            }
+
+            return nil
+        }
+    }
+
+    private static func domainLabels(from value: Any?) -> [String] {
+        guard let values = array(value) else {
+            return []
+        }
+
+        return values.compactMap { element in
+            if let text = nonEmptyString(element) {
+                return text
+            }
+
+            guard let dictionary = dictionary(element) else {
+                return nil
+            }
+
+            return firstNonEmptyString(
+                dictionary["domain"],
+                dictionary["host"],
+                dictionary["name"],
+                dictionary["url"]
+            )
+        }
+    }
+
+    private static func portLabels(from value: Any?) -> [String] {
+        guard let values = array(value) else {
+            return []
+        }
+
+        return values.compactMap { element in
+            if let text = nonEmptyString(element) {
+                return text
+            }
+
+            guard let dictionary = dictionary(element) else {
+                return nil
+            }
+
+            let hostPort = firstNonEmptyString(dictionary["hostPort"], dictionary["publishedPort"])
+            let containerPort = firstNonEmptyString(dictionary["containerPort"], dictionary["targetPort"], dictionary["port"])
+            let protocolValue = firstNonEmptyString(dictionary["protocol"])?.uppercased()
+
+            let base: String?
+            switch (hostPort, containerPort) {
+            case let (host?, container?):
+                base = "\(host) -> \(container)"
+            case let (host?, nil):
+                base = host
+            case let (nil, container?):
+                base = container
+            default:
+                base = nil
+            }
+
+            guard let label = base else {
+                return nil
+            }
+
+            if let protocolValue {
+                return "\(label) \(protocolValue)"
+            }
+            return label
+        }
+    }
+
+    private static func mountSummaries(from value: Any?) -> [DokployMountSummary] {
+        guard let values = array(value) else {
+            return []
+        }
+
+        return values.enumerated().compactMap { index, element in
+            if let text = nonEmptyString(element) {
+                return DokployMountSummary(id: "mount-\(index)", title: text, subtitle: nil)
+            }
+
+            guard let dictionary = dictionary(element) else {
+                return nil
+            }
+
+            let title = firstNonEmptyString(
+                dictionary["destination"],
+                dictionary["target"],
+                dictionary["mountPath"],
+                dictionary["path"],
+                dictionary["name"]
+            ) ?? "Mount \(index + 1)"
+
+            let source = firstNonEmptyString(
+                dictionary["source"],
+                dictionary["hostPath"],
+                dictionary["volumeName"],
+                dictionary["name"]
+            )
+
+            let subtitle: String?
+            if let source {
+                subtitle = source
+            } else {
+                subtitle = firstNonEmptyString(dictionary["type"], dictionary["mode"])
+            }
+
+            return DokployMountSummary(id: "mount-\(index)", title: title, subtitle: subtitle)
+        }
+    }
+
+    private static func normalizedLabel(_ value: Any?) -> String? {
+        guard let raw = nonEmptyString(value) else {
+            return nil
+        }
+
+        return raw
+            .replacingOccurrences(of: "-", with: " ")
+            .replacingOccurrences(of: "_", with: " ")
+            .split(separator: " ")
+            .map { token in
+                token.lowercased() == token ? token.capitalized : String(token)
+            }
+            .joined(separator: " ")
+    }
+}
+
 struct InstanceSnapshot: Equatable {
     let instance: DokployInstance
     let entries: [MonitoredApplication]

@@ -502,8 +502,8 @@ struct MainMenuView: View {
                 title: "Total Services",
                 value: store.allEntries.count,
                 icon: "square.stack.3d.up",
-                color: .secondary,
-                isActive: false
+                color: .purple,
+                isActive: store.allEntries.count > 0
             )
         }
     }
@@ -1186,6 +1186,10 @@ private struct DashboardEntryRow: View {
                                 .foregroundStyle(.quaternary)
                         }
                     }
+
+                    Image(systemName: isSelected ? "chevron.right.circle.fill" : "chevron.right")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(isSelected ? Color.accentColor : Color.secondary.opacity(0.3))
                 }
                 .padding(.leading, 12)
                 .padding(.trailing, 16)
@@ -1249,6 +1253,28 @@ private enum ServiceHistoryState {
     case failed(String)
 }
 
+private enum ServiceInspectorState {
+    case idle
+    case loading
+    case loaded(DokployServiceInspectorData)
+    case unsupported(String)
+    case failed(String)
+}
+
+private enum DetailTab: String, CaseIterable, Identifiable {
+    case details = "Details"
+    case deployments = "Deployments"
+
+    var id: String { rawValue }
+
+    var icon: String {
+        switch self {
+        case .details: return "slider.horizontal.3"
+        case .deployments: return "clock.arrow.circlepath"
+        }
+    }
+}
+
 private struct ServiceDetailPanel: View {
     let entry: MonitoredApplication
     let instance: DokployInstance?
@@ -1256,6 +1282,8 @@ private struct ServiceDetailPanel: View {
     let onClose: () -> Void
 
     @State private var historyState: ServiceHistoryState = .idle
+    @State private var inspectorState: ServiceInspectorState = .idle
+    @State private var activeTab: DetailTab = .details
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -1291,15 +1319,19 @@ private struct ServiceDetailPanel: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
                     detailHeader(entry: entry)
-                        .padding(.bottom, 16)
+                        .padding(.bottom, 14)
 
-                    detailFacts(entry: entry)
-                        .padding(.bottom, 16)
+                    detailTabPicker
+                        .padding(.bottom, 14)
 
-                    Divider()
-                        .padding(.bottom, 16)
-
-                    deploymentSection(entry: entry)
+                    Group {
+                        switch activeTab {
+                        case .details:
+                            inspectorSection(entry: entry)
+                        case .deployments:
+                            deploymentSection(entry: entry)
+                        }
+                    }
                 }
                 .padding(18)
             }
@@ -1314,7 +1346,8 @@ private struct ServiceDetailPanel: View {
                 )
         )
         .task(id: entry.id) {
-            await loadHistory()
+            activeTab = .details
+            await loadInspectorContent()
         }
     }
 
@@ -1366,6 +1399,27 @@ private struct ServiceDetailPanel: View {
                 Spacer(minLength: 0)
             }
 
+            // Breadcrumb
+            HStack(spacing: 4) {
+                Image(systemName: "server.rack")
+                    .font(.system(size: 9))
+                    .foregroundStyle(.quaternary)
+                Text(entry.instanceName)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.secondary)
+                Text("›")
+                    .foregroundStyle(.quaternary)
+                Text(entry.projectName)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.tertiary)
+                Text("›")
+                    .foregroundStyle(.quaternary)
+                Text(entry.environmentName)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.tertiary)
+            }
+            .lineLimit(1)
+
             // App name + Open in Dokploy
             HStack(spacing: 8) {
                 if let appName = entry.appName, !appName.isEmpty {
@@ -1403,79 +1457,268 @@ private struct ServiceDetailPanel: View {
         }
     }
 
-    private func detailFacts(entry: MonitoredApplication) -> some View {
-        LazyVGrid(
-            columns: [
-                GridItem(.flexible(), spacing: 8),
-                GridItem(.flexible(), spacing: 8)
-            ],
-            alignment: .leading,
-            spacing: 8
-        ) {
-            DetailFactCard(
-                icon: "server.rack",
-                label: "Instance",
-                value: entry.instanceName
-            )
-            DetailFactCard(
-                icon: "folder",
-                label: "Project",
-                value: entry.projectName
-            )
-            DetailFactCard(
-                icon: "leaf",
-                label: "Environment",
-                value: entry.environmentName
-            )
-            DetailFactCard(
-                icon: "circle.dotted",
-                label: "Status",
-                value: entry.statusLabel(now: .now, recentWindow: recentWindow),
-                valueColor: accentColor(for: entry)
-            )
-            DetailFactCard(
-                icon: "clock",
-                label: "Last Activity",
-                value: entry.lastActivityDate.map {
-                    DokployRelativeTime.shortString(since: $0, now: .now)
-                } ?? "None"
-            )
-            DetailFactCard(
-                icon: entry.serviceType.symbolName,
-                label: "Type",
-                value: entry.typeLabel
-            )
+    private var detailTabPicker: some View {
+        HStack(spacing: 0) {
+            ForEach(DetailTab.allCases) { tab in
+                let isActive = activeTab == tab
+
+                Button {
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        activeTab = tab
+                    }
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: tab.icon)
+                            .font(.system(size: 10))
+
+                        Text(tab.rawValue)
+                            .font(.system(size: 11, weight: isActive ? .semibold : .regular))
+
+                        if tab == .deployments, case .loaded(let deps) = historyState, !deps.isEmpty {
+                            Text("\(deps.count)")
+                                .font(.system(size: 9, weight: .bold, design: .rounded))
+                                .padding(.horizontal, 5)
+                                .padding(.vertical, 1)
+                                .background(
+                                    (isActive ? Color.white.opacity(0.3) : Color.secondary.opacity(0.12)),
+                                    in: Capsule()
+                                )
+                        }
+                    }
+                    .foregroundStyle(isActive ? .white : .secondary)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 5)
+                    .background(
+                        isActive
+                            ? AnyShapeStyle(Color.accentColor)
+                            : AnyShapeStyle(Color.clear),
+                        in: Capsule()
+                    )
+                }
+                .buttonStyle(.plain)
+            }
+
+            Spacer()
+
+            Button {
+                Task {
+                    switch activeTab {
+                    case .details: await loadInspectorDetail()
+                    case .deployments: await loadHistory()
+                    }
+                }
+            } label: {
+                Image(systemName: "arrow.clockwise")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.borderless)
+            .help("Reload")
+        }
+        .padding(3)
+        .background {
+            Capsule()
+                .fill(Color.primary.opacity(0.04))
+        }
+    }
+
+    @ViewBuilder
+    private func inspectorSection(entry: MonitoredApplication) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            switch inspectorState {
+            case .idle, .loading:
+                VStack(spacing: 10) {
+                    ForEach(0..<2, id: \.self) { _ in
+                        RoundedRectangle(cornerRadius: 10)
+                            .fill(Color.primary.opacity(0.03))
+                            .frame(height: 82)
+                            .overlay(
+                                VStack(alignment: .leading, spacing: 8) {
+                                    RoundedRectangle(cornerRadius: 4)
+                                        .fill(Color.primary.opacity(0.08))
+                                        .frame(width: 110, height: 10)
+                                    RoundedRectangle(cornerRadius: 4)
+                                        .fill(Color.primary.opacity(0.05))
+                                        .frame(height: 32)
+                                }
+                                .padding(12)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                            )
+                    }
+                }
+                .opacity(0.75)
+
+            case .unsupported(let message):
+                detailMessage(
+                    icon: entry.serviceType.symbolName,
+                    title: "Limited inspector data",
+                    message: message,
+                    color: .secondary
+                )
+
+            case .failed(let message):
+                detailMessage(
+                    icon: "exclamationmark.triangle.fill",
+                    title: "Could not load service details",
+                    message: message,
+                    color: .orange
+                )
+
+            case .loaded(let detail):
+                if !(detail.hasSourceSection || detail.hasRoutingSection || detail.hasRuntimeSection || detail.hasStorageSection || detail.hasComposeInternals) {
+                    detailMessage(
+                        icon: "slider.horizontal.3",
+                        title: "No extra service metadata",
+                        message: "Dokploy did not return any additional inspector details for this service.",
+                        color: .secondary
+                    )
+                } else {
+                    VStack(alignment: .leading, spacing: 14) {
+                        if detail.hasSourceSection {
+                            inspectorCard(title: "Source & Build", icon: "hammer") {
+                                LazyVGrid(
+                                    columns: [
+                                        GridItem(.flexible(), spacing: 8),
+                                        GridItem(.flexible(), spacing: 8)
+                                    ],
+                                    alignment: .leading,
+                                    spacing: 8
+                                ) {
+                                    if let sourceType = detail.sourceType {
+                                        DetailFactCard(icon: "shippingbox", label: "Source", value: sourceType)
+                                    }
+                                    if let configurationType = detail.configurationType {
+                                        DetailFactCard(icon: "wrench.and.screwdriver", label: "Config", value: configurationType)
+                                    }
+                                    if let branch = detail.branch {
+                                        DetailFactCard(icon: "arrow.triangle.branch", label: "Branch", value: branch)
+                                    }
+                                    if let repository = detail.repository {
+                                        DetailFactCard(icon: "link", label: "Repository", value: repository)
+                                    }
+                                    if let autoDeployEnabled = detail.autoDeployEnabled {
+                                        DetailFactCard(
+                                            icon: "bolt.badge.clock",
+                                            label: "Auto Deploy",
+                                            value: autoDeployEnabled ? "Enabled" : "Disabled",
+                                            valueColor: autoDeployEnabled ? .green : .secondary
+                                        )
+                                    }
+                                    if let previewEnabled = detail.previewDeploymentsEnabled {
+                                        DetailFactCard(
+                                            icon: "rectangle.3.group.bubble.left",
+                                            label: "Preview Deploys",
+                                            value: previewEnabled ? "Enabled" : "Disabled",
+                                            valueColor: previewEnabled ? .green : .secondary
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        if detail.hasRoutingSection {
+                            inspectorCard(title: "Routing", icon: "network") {
+                                if !detail.domainLabels.isEmpty {
+                                    inspectorChipGroup(title: "Domains", values: detail.domainLabels)
+                                }
+                                if !detail.portLabels.isEmpty {
+                                    inspectorChipGroup(title: "Ports", values: detail.portLabels)
+                                }
+                            }
+                        }
+
+                        if detail.hasRuntimeSection {
+                            inspectorCard(title: "Runtime", icon: "waveform.path.ecg") {
+                                LazyVGrid(
+                                    columns: [
+                                        GridItem(.flexible(), spacing: 8),
+                                        GridItem(.flexible(), spacing: 8)
+                                    ],
+                                    alignment: .leading,
+                                    spacing: 8
+                                ) {
+                                    if let deploymentCount = detail.deploymentCount {
+                                        DetailFactCard(icon: "clock.arrow.circlepath", label: "Deployments", value: "\(deploymentCount)")
+                                    }
+                                    if let previewCount = detail.previewDeploymentCount {
+                                        DetailFactCard(icon: "rectangle.3.group", label: "Previews", value: "\(previewCount)")
+                                    }
+                                    DetailFactCard(icon: "terminal", label: "Env Vars", value: "\(detail.environmentVariableCount)")
+                                    DetailFactCard(icon: "folder.badge.gearshape", label: "Watch Paths", value: "\(detail.watchPathCount)")
+                                    DetailFactCard(icon: "externaldrive", label: "Mounts", value: "\(detail.mountCount)")
+                                }
+
+                                if !detail.watchPaths.isEmpty {
+                                    inspectorChipGroup(title: "Watched Paths", values: detail.watchPaths)
+                                }
+                            }
+                        }
+
+                        if detail.hasStorageSection {
+                            inspectorCard(title: "Storage", icon: "externaldrive.connected.to.line.below") {
+                                if !detail.mountSummaries.isEmpty {
+                                    InspectorMountList(title: "Declared Mounts", mounts: detail.mountSummaries)
+                                }
+
+                                if !detail.composeMountGroups.isEmpty {
+                                    VStack(alignment: .leading, spacing: 10) {
+                                        Text("Live Service Mounts")
+                                            .font(.system(size: 11, weight: .semibold))
+                                            .foregroundStyle(.secondary)
+
+                                        ForEach(detail.composeMountGroups) { group in
+                                            VStack(alignment: .leading, spacing: 8) {
+                                                Text(group.serviceName)
+                                                    .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                                                InspectorMountList(title: nil, mounts: group.mounts)
+                                            }
+                                            .padding(10)
+                                            .background(
+                                                RoundedRectangle(cornerRadius: 8)
+                                                    .fill(Color.primary.opacity(0.03))
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        if detail.hasComposeInternals {
+                            inspectorCard(title: "Compose Internals", icon: "shippingbox.circle") {
+                                if !detail.composeServiceNames.isEmpty {
+                                    inspectorChipGroup(title: "Services", values: detail.composeServiceNames)
+                                }
+
+                                if let renderedCompose = detail.renderedCompose, !renderedCompose.isEmpty {
+                                    DisclosureGroup("Rendered compose") {
+                                        ScrollView(.horizontal, showsIndicators: true) {
+                                            Text(renderedCompose)
+                                                .font(.system(size: 10, design: .monospaced))
+                                                .foregroundStyle(.secondary)
+                                                .textSelection(.enabled)
+                                                .frame(maxWidth: .infinity, alignment: .leading)
+                                                .padding(10)
+                                                .background(
+                                                    RoundedRectangle(cornerRadius: 8)
+                                                        .fill(Color.primary.opacity(0.04))
+                                                )
+                                        }
+                                        .frame(maxHeight: 220)
+                                        .padding(.top, 6)
+                                    }
+                                    .font(.system(size: 11, weight: .medium))
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 
     @ViewBuilder
     private func deploymentSection(entry: MonitoredApplication) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .center) {
-                HStack(spacing: 6) {
-                    Image(systemName: "clock.arrow.circlepath")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(.secondary)
-
-                    Text("Deployments")
-                        .font(.system(size: 13, weight: .semibold))
-                }
-
-                Spacer()
-
-                if entry.supportsDeploymentHistory {
-                    Button {
-                        Task { await loadHistory() }
-                    } label: {
-                        Image(systemName: "arrow.clockwise")
-                            .font(.system(size: 10, weight: .medium))
-                    }
-                    .buttonStyle(.borderless)
-                    .foregroundStyle(.secondary)
-                    .help("Reload deployment history")
-                }
-            }
-
             switch historyState {
             case .idle, .loading:
                 VStack(spacing: 8) {
@@ -1581,10 +1824,41 @@ private struct ServiceDetailPanel: View {
     }
 
     @MainActor
+    private func loadInspectorContent() async {
+        async let inspector: Void = loadInspectorDetail()
+        async let history: Void = loadHistory()
+        _ = await (inspector, history)
+    }
+
+    @MainActor
+    private func loadInspectorDetail() async {
+        guard let instance else {
+            inspectorState = .failed("The configured instance for this service is no longer available.")
+            return
+        }
+
+        guard entry.serviceType == .application || entry.serviceType == .compose else {
+            inspectorState = .unsupported(
+                DokployServiceInspectorData.unsupportedMessage(for: entry.serviceType)
+            )
+            return
+        }
+
+        inspectorState = .loading
+
+        do {
+            let detail = try await DokployAPIClient(instance: instance).fetchInspectorDetail(for: entry)
+            inspectorState = .loaded(detail)
+        } catch {
+            inspectorState = .failed(error.localizedDescription)
+        }
+    }
+
+    @MainActor
     private func loadHistory() async {
         guard entry.supportsDeploymentHistory else {
             historyState = .unsupported(
-                "Dokploy exposes deployment history for applications and compose services. \(entry.typeLabel) services are shown here for status monitoring."
+                DokployServiceInspectorData.unsupportedMessage(for: entry.serviceType)
             )
             return
         }
@@ -1601,6 +1875,57 @@ private struct ServiceDetailPanel: View {
             historyState = .loaded(deployments)
         } catch {
             historyState = .failed(error.localizedDescription)
+        }
+    }
+
+    @ViewBuilder
+    private func inspectorCard<Content: View>(title: String, icon: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 6) {
+                Image(systemName: icon)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.secondary)
+                Text(title)
+                    .font(.system(size: 11, weight: .semibold))
+            }
+
+            content()
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 10)
+                .fill(Color.primary.opacity(0.025))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10)
+                        .strokeBorder(Color.primary.opacity(0.05), lineWidth: 0.5)
+                )
+        )
+    }
+
+    @ViewBuilder
+    private func inspectorChipGroup(title: String, values: [String]) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(.secondary)
+
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 140), spacing: 8)], alignment: .leading, spacing: 8) {
+                ForEach(values, id: \.self) { value in
+                    Text(value)
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 7)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(
+                            RoundedRectangle(cornerRadius: 8)
+                                .fill(Color.primary.opacity(0.04))
+                        )
+                        .help(value)
+                }
+            }
         }
     }
 }
@@ -1629,7 +1954,8 @@ private struct DetailFactCard: View {
                 Text(value)
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(valueColor ?? .secondary)
-                    .lineLimit(1)
+                    .lineLimit(2)
+                    .help(value)
             }
         }
         .padding(.horizontal, 10)
@@ -1639,6 +1965,41 @@ private struct DetailFactCard: View {
             RoundedRectangle(cornerRadius: 8)
                 .fill(Color.primary.opacity(0.03))
         )
+    }
+}
+
+private struct InspectorMountList: View {
+    let title: String?
+    let mounts: [DokployMountSummary]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if let title {
+                Text(title)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.secondary)
+            }
+
+            ForEach(mounts) { mount in
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(mount.title)
+                        .font(.system(size: 11, weight: .medium))
+                    if let subtitle = mount.subtitle {
+                        Text(subtitle)
+                            .font(.system(size: 10))
+                            .foregroundStyle(.tertiary)
+                            .textSelection(.enabled)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
+                .background(
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(Color.primary.opacity(0.04))
+                )
+            }
+        }
     }
 }
 

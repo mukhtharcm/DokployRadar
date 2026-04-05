@@ -97,7 +97,45 @@ struct DokployAPIClient {
         return try await request(url: endpoint)
     }
 
+    private func requestJSONObject(path: String, queryItems: [URLQueryItem] = []) async throws -> [String: Any] {
+        let endpoint = try endpointURL(for: path, queryItems: queryItems)
+        let data = try await requestData(url: endpoint)
+        let payload = try JSONSerialization.jsonObject(with: data)
+        guard let dictionary = payload as? [String: Any] else {
+            throw DokployAPIError.invalidResponse
+        }
+        return dictionary
+    }
+
+    private func requestJSONArray(path: String, queryItems: [URLQueryItem] = []) async throws -> [Any] {
+        let endpoint = try endpointURL(for: path, queryItems: queryItems)
+        let data = try await requestData(url: endpoint)
+        let payload = try JSONSerialization.jsonObject(with: data)
+        guard let array = payload as? [Any] else {
+            throw DokployAPIError.invalidResponse
+        }
+        return array
+    }
+
+    private func requestString(path: String, queryItems: [URLQueryItem] = []) async throws -> String {
+        let endpoint = try endpointURL(for: path, queryItems: queryItems)
+        let data = try await requestData(url: endpoint)
+        guard let text = String(data: data, encoding: .utf8) else {
+            throw DokployAPIError.invalidResponse
+        }
+        return text
+    }
+
     private func request<Response: Decodable>(url endpoint: URL) async throws -> Response {
+        let data = try await requestData(url: endpoint)
+        do {
+            return try JSONDecoder().decode(Response.self, from: data)
+        } catch {
+            throw DokployAPIError.decodingFailed(error)
+        }
+    }
+
+    private func requestData(url endpoint: URL) async throws -> Data {
         var request = URLRequest(url: endpoint)
         request.httpMethod = "GET"
         request.timeoutInterval = 20
@@ -125,11 +163,7 @@ struct DokployAPIClient {
             throw DokployAPIError.requestFailed(statusCode: httpResponse.statusCode, message: message)
         }
 
-        do {
-            return try JSONDecoder().decode(Response.self, from: data)
-        } catch {
-            throw DokployAPIError.decodingFailed(error)
-        }
+        return data
     }
 
     func fetchDeploymentHistory(for entry: MonitoredApplication) async throws -> [DokployDeploymentRecord] {
@@ -147,6 +181,151 @@ struct DokployAPIClient {
         case .mariadb, .mongo, .mysql, .postgres, .redis, .libsql:
             return []
         }
+    }
+
+    func fetchInspectorDetail(for entry: MonitoredApplication) async throws -> DokployServiceInspectorData {
+        switch entry.serviceType {
+        case .application:
+            let payload = try await requestJSONObject(
+                path: "/application.one",
+                queryItems: [URLQueryItem(name: "applicationId", value: entry.applicationId)]
+            )
+            return DokployServiceInspectorParser.applicationDetails(from: payload)
+
+        case .compose:
+            async let payloadTask = requestJSONObject(
+                path: "/compose.one",
+                queryItems: [URLQueryItem(name: "composeId", value: entry.applicationId)]
+            )
+            async let serviceNamesTask = requestJSONArray(
+                path: "/compose.loadServices",
+                queryItems: [URLQueryItem(name: "composeId", value: entry.applicationId)]
+            )
+            async let renderedComposeTask = requestString(
+                path: "/compose.getConvertedCompose",
+                queryItems: [URLQueryItem(name: "composeId", value: entry.applicationId)]
+            )
+
+            let payload = try await payloadTask
+            let serviceNames = try await serviceNamesTask.compactMap { $0 as? String }
+            let renderedCompose = try await renderedComposeTask
+
+            let mountGroups = try await fetchComposeMountGroups(
+                composeID: entry.applicationId,
+                serviceNames: serviceNames
+            )
+
+            return DokployServiceInspectorParser.composeDetails(
+                from: payload,
+                serviceNames: serviceNames,
+                mountGroups: mountGroups,
+                renderedCompose: renderedCompose
+            )
+
+        case .mariadb, .mongo, .mysql, .postgres, .redis, .libsql:
+            return DokployServiceInspectorData(
+                sourceType: nil,
+                configurationType: nil,
+                repository: nil,
+                branch: nil,
+                autoDeployEnabled: nil,
+                previewDeploymentsEnabled: nil,
+                previewDeploymentCount: nil,
+                deploymentCount: nil,
+                environmentVariableCount: 0,
+                mountCount: 0,
+                watchPathCount: 0,
+                domainLabels: [],
+                portLabels: [],
+                mountSummaries: [],
+                watchPaths: [],
+                composeServiceNames: [],
+                composeMountGroups: [],
+                renderedCompose: nil
+            )
+        }
+    }
+
+    private func fetchComposeMountGroups(
+        composeID: String,
+        serviceNames: [String]
+    ) async throws -> [DokployComposeServiceMountGroup] {
+        try await withThrowingTaskGroup(of: DokployComposeServiceMountGroup?.self) { group in
+            for serviceName in serviceNames {
+                group.addTask {
+                    let mounts = try await requestJSONArray(
+                        path: "/compose.loadMountsByService",
+                        queryItems: [
+                            URLQueryItem(name: "composeId", value: composeID),
+                            URLQueryItem(name: "serviceName", value: serviceName)
+                        ]
+                    )
+
+                    let summaries: [DokployMountSummary] = mounts.enumerated().compactMap { index, element in
+                        guard let mount = element as? [String: Any] else {
+                            return nil
+                        }
+
+                        let destination = Self.firstNonEmptyString(
+                            mount["Destination"],
+                            mount["destination"],
+                            mount["Target"],
+                            mount["target"]
+                        ) ?? "Mount \(index + 1)"
+
+                        let source = Self.firstNonEmptyString(
+                            mount["Source"],
+                            mount["source"],
+                            mount["Name"],
+                            mount["name"]
+                        )
+                        let type = Self.firstNonEmptyString(mount["Type"], mount["type"])
+                        let mode = Self.firstNonEmptyString(mount["Mode"], mount["mode"])
+
+                        let subtitleParts = [source, type, mode].compactMap { $0 }
+                        return DokployMountSummary(
+                            id: "\(serviceName)-\(index)",
+                            title: destination,
+                            subtitle: subtitleParts.isEmpty ? nil : subtitleParts.joined(separator: " • ")
+                        )
+                    }
+
+                    guard !summaries.isEmpty else {
+                        return nil
+                    }
+
+                    return DokployComposeServiceMountGroup(
+                        id: serviceName,
+                        serviceName: serviceName,
+                        mounts: summaries
+                    )
+                }
+            }
+
+            var groups: [DokployComposeServiceMountGroup] = []
+            for try await groupItem in group {
+                if let groupItem {
+                    groups.append(groupItem)
+                }
+            }
+
+            return groups.sorted {
+                $0.serviceName.localizedCaseInsensitiveCompare($1.serviceName) == .orderedAscending
+            }
+        }
+    }
+
+    private static func firstNonEmptyString(_ values: Any?...) -> String? {
+        for value in values {
+            guard let text = value as? String else {
+                continue
+            }
+            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty {
+                return trimmed
+            }
+        }
+        return nil
     }
 
     private func buildEntries(
