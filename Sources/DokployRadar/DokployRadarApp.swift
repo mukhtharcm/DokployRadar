@@ -1,0 +1,142 @@
+import AppKit
+import SwiftUI
+
+@MainActor
+final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
+    private let store = MonitorStore()
+    private let popover = NSPopover()
+    private var statusItem: NSStatusItem?
+    private var mainWindow: NSWindow?
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        NSApp.setActivationPolicy(.accessory)
+        configureStatusItem()
+        configurePopover()
+        store.startMonitoring()
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        store.stopMonitoring()
+    }
+
+    private func configureStatusItem() {
+        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        item.button?.image = NSImage(
+            systemSymbolName: "dot.radiowaves.left.and.right",
+            accessibilityDescription: "Dokploy Radar"
+        )
+        item.button?.image?.isTemplate = true
+        item.button?.imagePosition = .imageOnly
+        item.button?.action = #selector(togglePopover(_:))
+        item.button?.target = self
+        statusItem = item
+    }
+
+    private func configurePopover() {
+        popover.behavior = .transient
+        popover.animates = true
+        popover.contentViewController = NSHostingController(
+            rootView: MainMenuView(
+                store: store,
+                onOpenApp: { [weak self] in
+                    self?.openMainWindowFromPopover()
+                }
+            )
+        )
+    }
+
+    @objc
+    private func togglePopover(_ sender: AnyObject?) {
+        guard let button = statusItem?.button else {
+            return
+        }
+
+        if popover.isShown {
+            popover.performClose(sender)
+            return
+        }
+
+        popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+        popover.contentViewController?.view.window?.makeKey()
+    }
+
+    private func openMainWindowFromPopover() {
+        popover.performClose(nil)
+        showMainWindow()
+    }
+
+    private func showMainWindow() {
+        if mainWindow == nil {
+            mainWindow = makeMainWindow()
+        }
+
+        guard let mainWindow else {
+            return
+        }
+
+        setFullAppVisibility(isVisible: true)
+        NSApp.activate(ignoringOtherApps: true)
+        mainWindow.makeKeyAndOrderFront(nil)
+    }
+
+    private func makeMainWindow() -> NSWindow {
+        let rootView = MainMenuView(
+            store: store,
+            preferredWidth: 980,
+            fillsWindow: true,
+            showsQuitButton: false
+        )
+
+        let hostingController = NSHostingController(rootView: rootView)
+        let window = NSWindow(contentViewController: hostingController)
+        window.title = "Dokploy Radar"
+        window.styleMask = [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView]
+        window.titlebarAppearsTransparent = true
+        window.titleVisibility = .hidden
+        window.setContentSize(NSSize(width: 1120, height: 720))
+        window.contentMinSize = NSSize(width: 920, height: 560)
+        window.center()
+        window.isReleasedWhenClosed = false
+        window.setFrameAutosaveName("DokployRadarMainWindow")
+        window.delegate = self
+        return window
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        guard notification.object as? NSWindow === mainWindow else {
+            return
+        }
+
+        setFullAppVisibility(isVisible: false)
+    }
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        guard !flag else {
+            return false
+        }
+
+        showMainWindow()
+        return true
+    }
+
+    private func setFullAppVisibility(isVisible: Bool) {
+        let targetPolicy: NSApplication.ActivationPolicy = isVisible ? .regular : .accessory
+        guard NSApp.activationPolicy() != targetPolicy else {
+            return
+        }
+
+        NSApp.setActivationPolicy(targetPolicy)
+        statusItem?.isVisible = true
+    }
+}
+
+@main
+struct DokployRadarApp: App {
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
+
+    var body: some Scene {
+        Settings {
+            EmptyView()
+        }
+    }
+}
