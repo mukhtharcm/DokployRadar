@@ -1542,31 +1542,6 @@ private struct ServiceDetailPanel: View {
         }
     }
 
-    private var detailPlaceholder: some View {
-        VStack(spacing: 14) {
-            ZStack {
-                Circle()
-                    .fill(Color.primary.opacity(0.04))
-                    .frame(width: 60, height: 60)
-
-                Image(systemName: "rectangle.and.hand.point.up.left")
-                    .font(.system(size: 24, weight: .light))
-                    .foregroundStyle(.tertiary)
-            }
-
-            VStack(spacing: 4) {
-                Text("Select a service")
-                    .font(.system(size: 14, weight: .semibold))
-
-                Text("Pick a service from the list to\ninspect its details and history.")
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-            }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-
     private func detailMessage(icon: String, title: String, message: String, color: Color) -> some View {
         HStack(alignment: .top, spacing: 10) {
             Image(systemName: icon)
@@ -1607,11 +1582,6 @@ private struct ServiceDetailPanel: View {
 
     @MainActor
     private func loadHistory() async {
-        guard let entry else {
-            historyState = .idle
-            return
-        }
-
         guard entry.supportsDeploymentHistory else {
             historyState = .unsupported(
                 "Dokploy exposes deployment history for applications and compose services. \(entry.typeLabel) services are shown here for status monitoring."
