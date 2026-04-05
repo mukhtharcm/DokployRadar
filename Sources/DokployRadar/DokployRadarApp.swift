@@ -138,8 +138,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let window = NSWindow(contentViewController: hostingController)
         window.title = "Settings"
         window.styleMask = [.titled, .closable, .miniaturizable]
-        window.setContentSize(NSSize(width: 460, height: 280))
-        window.contentMinSize = NSSize(width: 460, height: 280)
+        window.setContentSize(NSSize(width: 520, height: 480))
+        window.contentMinSize = NSSize(width: 520, height: 440)
         window.center()
         window.isReleasedWhenClosed = false
         window.setFrameAutosaveName("DokployRadarSettingsWindow")
