@@ -53,6 +53,7 @@ struct MainMenuView: View {
 
     @State private var editorMode: InstanceEditorMode?
     @State private var selectedInstanceID: UUID?
+    @State private var selectedEntryID: String?
     @State private var searchText = ""
     @State private var dashboardFilter: DashboardFilter = .all
 
@@ -320,13 +321,31 @@ struct MainMenuView: View {
                     if entries.isEmpty {
                         noResultsState
                     } else {
-                        ScrollView {
-                            LazyVStack(spacing: 6) {
-                                ForEach(entries) { entry in
-                                    DashboardEntryRow(entry: entry)
+                        HStack(alignment: .top, spacing: 20) {
+                            ScrollView {
+                                LazyVStack(spacing: 6) {
+                                    ForEach(entries) { entry in
+                                        DashboardEntryRow(
+                                            entry: entry,
+                                            isSelected: selectedDashboardEntry?.id == entry.id
+                                        ) {
+                                            selectedEntryID = entry.id
+                                        }
+                                    }
                                 }
+                                .padding(.horizontal, 24)
+                                .padding(.vertical, 12)
                             }
-                            .padding(.horizontal, 24)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+                            ServiceDetailPanel(
+                                entry: selectedDashboardEntry,
+                                instance: selectedDashboardEntry.flatMap { entry in
+                                    store.instances.first { $0.id == entry.instanceID }
+                                }
+                            )
+                            .frame(width: 340)
+                            .padding(.trailing, 24)
                             .padding(.vertical, 12)
                         }
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -823,6 +842,15 @@ struct MainMenuView: View {
         }
     }
 
+    private var selectedDashboardEntry: MonitoredApplication? {
+        if let selectedEntryID,
+           let selected = dashboardFilteredEntries.first(where: { $0.id == selectedEntryID }) {
+            return selected
+        }
+
+        return dashboardFilteredEntries.first
+    }
+
     private func countFor(filter: DashboardFilter) -> Int {
         let base = filteredEntries
         let now = Date()
@@ -1025,6 +1053,8 @@ private struct MenuEntryRow: View {
 
 private struct DashboardEntryRow: View {
     let entry: MonitoredApplication
+    let isSelected: Bool
+    let action: () -> Void
 
     @State private var isHovered = false
 
@@ -1108,16 +1138,17 @@ private struct DashboardEntryRow: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background {
                 RoundedRectangle(cornerRadius: 10)
-                    .fill(isHovered ? Color.primary.opacity(0.05) : Color.primary.opacity(0.02))
+                    .fill(backgroundColor)
                     .overlay(
                         RoundedRectangle(cornerRadius: 10)
                             .strokeBorder(
-                                isHovered ? Color.primary.opacity(0.1) : Color.primary.opacity(0.05),
+                                borderColor,
                                 lineWidth: 0.5
                             )
                     )
             }
             .contentShape(RoundedRectangle(cornerRadius: 10))
+            .onTapGesture(perform: action)
             .onHover { hovering in
                 withAnimation(.easeInOut(duration: 0.12)) {
                     isHovered = hovering
@@ -1137,6 +1168,585 @@ private struct DashboardEntryRow: View {
 
     private func iconFor(entry: MonitoredApplication) -> String {
         entry.serviceType.symbolName
+    }
+
+    private var backgroundColor: Color {
+        if isSelected {
+            return Color.accentColor.opacity(0.08)
+        }
+        return isHovered ? Color.primary.opacity(0.05) : Color.primary.opacity(0.02)
+    }
+
+    private var borderColor: Color {
+        if isSelected {
+            return Color.accentColor.opacity(0.26)
+        }
+        return isHovered ? Color.primary.opacity(0.1) : Color.primary.opacity(0.05)
+    }
+}
+
+private enum ServiceHistoryState {
+    case idle
+    case loading
+    case loaded([DokployDeploymentRecord])
+    case unsupported(String)
+    case failed(String)
+}
+
+private struct ServiceDetailPanel: View {
+    let entry: MonitoredApplication?
+    let instance: DokployInstance?
+
+    @State private var historyState: ServiceHistoryState = .idle
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if let entry {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 0) {
+                        detailHeader(entry: entry)
+                            .padding(.bottom, 16)
+
+                        detailFacts(entry: entry)
+                            .padding(.bottom, 16)
+
+                        Divider()
+                            .padding(.bottom, 16)
+
+                        deploymentSection(entry: entry)
+                    }
+                    .padding(18)
+                }
+            } else {
+                detailPlaceholder
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(
+            RoundedRectangle(cornerRadius: 16)
+                .fill(Color.primary.opacity(0.02))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 16)
+                        .strokeBorder(Color.primary.opacity(0.06), lineWidth: 0.5)
+                )
+        )
+        .task(id: entry?.id) {
+            await loadHistory()
+        }
+    }
+
+    private func detailHeader(entry: MonitoredApplication) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            // Accent banner
+            HStack(alignment: .top, spacing: 12) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(
+                            LinearGradient(
+                                colors: [
+                                    accentColor(for: entry).opacity(0.2),
+                                    accentColor(for: entry).opacity(0.08)
+                                ],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                        .frame(width: 46, height: 46)
+
+                    Image(systemName: entry.serviceType.symbolName)
+                        .font(.system(size: 20, weight: .medium))
+                        .foregroundStyle(accentColor(for: entry))
+                }
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(entry.name)
+                        .font(.system(size: 16, weight: .bold))
+                        .lineLimit(2)
+
+                    HStack(spacing: 6) {
+                        StatusBadge(
+                            entry: entry,
+                            now: .now,
+                            isAnimated: entry.isDeploying
+                        )
+
+                        Text(entry.typeLabel)
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Color.primary.opacity(0.05), in: Capsule())
+                    }
+                }
+
+                Spacer(minLength: 0)
+            }
+
+            // App name + Open in Dokploy
+            HStack(spacing: 8) {
+                if let appName = entry.appName, !appName.isEmpty {
+                    HStack(spacing: 5) {
+                        Image(systemName: "tag")
+                            .font(.system(size: 9))
+                            .foregroundStyle(.tertiary)
+                        Text(appName)
+                            .font(.system(size: 11, weight: .medium, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                            .textSelection(.enabled)
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 6))
+                }
+
+                Spacer(minLength: 0)
+
+                if let instance, let baseURL = instance.normalizedBaseURL {
+                    Button {
+                        NSWorkspace.shared.open(baseURL)
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "arrow.up.right.square")
+                                .font(.system(size: 10))
+                            Text("Open Dokploy")
+                                .font(.system(size: 10, weight: .medium))
+                        }
+                    }
+                    .buttonStyle(.borderless)
+                    .foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+
+    private func detailFacts(entry: MonitoredApplication) -> some View {
+        LazyVGrid(
+            columns: [
+                GridItem(.flexible(), spacing: 8),
+                GridItem(.flexible(), spacing: 8)
+            ],
+            alignment: .leading,
+            spacing: 8
+        ) {
+            DetailFactCard(
+                icon: "server.rack",
+                label: "Instance",
+                value: entry.instanceName
+            )
+            DetailFactCard(
+                icon: "folder",
+                label: "Project",
+                value: entry.projectName
+            )
+            DetailFactCard(
+                icon: "leaf",
+                label: "Environment",
+                value: entry.environmentName
+            )
+            DetailFactCard(
+                icon: "circle.dotted",
+                label: "Status",
+                value: entry.statusLabel(now: .now),
+                valueColor: accentColor(for: entry)
+            )
+            DetailFactCard(
+                icon: "clock",
+                label: "Last Activity",
+                value: entry.lastActivityDate.map {
+                    DokployRelativeTime.shortString(since: $0, now: .now)
+                } ?? "None"
+            )
+            DetailFactCard(
+                icon: entry.serviceType.symbolName,
+                label: "Type",
+                value: entry.typeLabel
+            )
+        }
+    }
+
+    @ViewBuilder
+    private func deploymentSection(entry: MonitoredApplication) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .center) {
+                HStack(spacing: 6) {
+                    Image(systemName: "clock.arrow.circlepath")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(.secondary)
+
+                    Text("Deployments")
+                        .font(.system(size: 13, weight: .semibold))
+                }
+
+                Spacer()
+
+                if entry.supportsDeploymentHistory {
+                    Button {
+                        Task { await loadHistory() }
+                    } label: {
+                        Image(systemName: "arrow.clockwise")
+                            .font(.system(size: 10, weight: .medium))
+                    }
+                    .buttonStyle(.borderless)
+                    .foregroundStyle(.secondary)
+                    .help("Reload deployment history")
+                }
+            }
+
+            switch historyState {
+            case .idle, .loading:
+                VStack(spacing: 8) {
+                    ForEach(0..<3, id: \.self) { _ in
+                        HStack(spacing: 10) {
+                            RoundedRectangle(cornerRadius: 3)
+                                .fill(Color.primary.opacity(0.05))
+                                .frame(width: 6, height: 40)
+                            VStack(alignment: .leading, spacing: 4) {
+                                RoundedRectangle(cornerRadius: 3)
+                                    .fill(Color.primary.opacity(0.06))
+                                    .frame(width: 140, height: 10)
+                                RoundedRectangle(cornerRadius: 3)
+                                    .fill(Color.primary.opacity(0.04))
+                                    .frame(width: 90, height: 8)
+                            }
+                            Spacer()
+                        }
+                        .padding(10)
+                        .background(
+                            RoundedRectangle(cornerRadius: 8)
+                                .fill(Color.primary.opacity(0.02))
+                        )
+                    }
+                }
+                .opacity(0.6)
+
+            case .loaded(let deployments):
+                if deployments.isEmpty {
+                    detailMessage(
+                        icon: "clock.arrow.circlepath",
+                        title: "No recorded deployments",
+                        message: "Dokploy has not returned any deployment history for this service.",
+                        color: .secondary
+                    )
+                } else {
+                    VStack(alignment: .leading, spacing: 0) {
+                        ForEach(Array(deployments.enumerated()), id: \.element.id) { index, deployment in
+                            DeploymentTimelineRow(
+                                deployment: deployment,
+                                isFirst: index == 0,
+                                isLast: index == deployments.count - 1
+                            )
+                        }
+                    }
+                }
+
+            case .unsupported(let message):
+                detailMessage(
+                    icon: entry.serviceType.symbolName,
+                    title: "Status-only service",
+                    message: message,
+                    color: .secondary
+                )
+
+            case .failed(let message):
+                detailMessage(
+                    icon: "exclamationmark.triangle.fill",
+                    title: "Could not load history",
+                    message: message,
+                    color: .orange
+                )
+            }
+        }
+    }
+
+    private var detailPlaceholder: some View {
+        VStack(spacing: 14) {
+            ZStack {
+                Circle()
+                    .fill(Color.primary.opacity(0.04))
+                    .frame(width: 60, height: 60)
+
+                Image(systemName: "rectangle.and.hand.point.up.left")
+                    .font(.system(size: 24, weight: .light))
+                    .foregroundStyle(.tertiary)
+            }
+
+            VStack(spacing: 4) {
+                Text("Select a service")
+                    .font(.system(size: 14, weight: .semibold))
+
+                Text("Pick a service from the list to\ninspect its details and history.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func detailMessage(icon: String, title: String, message: String, color: Color) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: icon)
+                .font(.system(size: 16, weight: .medium))
+                .foregroundStyle(color.opacity(0.7))
+                .frame(width: 20)
+                .padding(.top, 1)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(.system(size: 12, weight: .semibold))
+                Text(message)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background {
+            RoundedRectangle(cornerRadius: 10)
+                .fill(color.opacity(0.04))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10)
+                        .strokeBorder(color.opacity(0.1), lineWidth: 0.5)
+                )
+        }
+    }
+
+    private func accentColor(for entry: MonitoredApplication) -> Color {
+        switch entry.group(now: .now) {
+        case .deploying: return .blue
+        case .recent: return .green
+        case .failed: return .red
+        case .steady: return .secondary
+        }
+    }
+
+    @MainActor
+    private func loadHistory() async {
+        guard let entry else {
+            historyState = .idle
+            return
+        }
+
+        guard entry.supportsDeploymentHistory else {
+            historyState = .unsupported(
+                "Dokploy exposes deployment history for applications and compose services. \(entry.typeLabel) services are shown here for status monitoring."
+            )
+            return
+        }
+
+        guard let instance else {
+            historyState = .failed("The configured instance for this service is no longer available.")
+            return
+        }
+
+        historyState = .loading
+
+        do {
+            let deployments = try await DokployAPIClient(instance: instance).fetchDeploymentHistory(for: entry)
+            historyState = .loaded(deployments)
+        } catch {
+            historyState = .failed(error.localizedDescription)
+        }
+    }
+}
+
+// MARK: - Detail Fact Card
+
+private struct DetailFactCard: View {
+    let icon: String
+    let label: String
+    let value: String
+    var valueColor: Color? = nil
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: icon)
+                .font(.system(size: 10, weight: .medium))
+                .foregroundStyle(.tertiary)
+                .frame(width: 14)
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(label)
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(.tertiary)
+                    .textCase(.uppercase)
+
+                Text(value)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(valueColor ?? .secondary)
+                    .lineLimit(1)
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(Color.primary.opacity(0.03))
+        )
+    }
+}
+
+// MARK: - Deployment Timeline Row
+
+private struct DeploymentTimelineRow: View {
+    let deployment: DokployDeploymentRecord
+    let isFirst: Bool
+    let isLast: Bool
+
+    @State private var isHovered = false
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 0) {
+            // Timeline track
+            VStack(spacing: 0) {
+                Rectangle()
+                    .fill(isFirst ? Color.clear : Color.primary.opacity(0.08))
+                    .frame(width: 1.5)
+                    .frame(height: 10)
+
+                ZStack {
+                    Circle()
+                        .fill(statusColor.opacity(0.15))
+                        .frame(width: 18, height: 18)
+
+                    Image(systemName: statusIcon)
+                        .font(.system(size: 8, weight: .bold))
+                        .foregroundStyle(statusColor)
+                }
+
+                Rectangle()
+                    .fill(isLast ? Color.clear : Color.primary.opacity(0.08))
+                    .frame(width: 1.5)
+                    .frame(maxHeight: .infinity)
+            }
+            .frame(width: 24)
+
+            // Content
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(alignment: .top, spacing: 6) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(deployment.title)
+                            .font(.system(size: 12, weight: .semibold))
+                            .lineLimit(2)
+
+                        HStack(spacing: 6) {
+                            Text(statusLabel)
+                                .font(.system(size: 10, weight: .semibold))
+                                .foregroundStyle(statusColor)
+
+                            if let duration = formattedDuration {
+                                Text("· \(duration)")
+                                    .font(.system(size: 10))
+                                    .foregroundStyle(.tertiary)
+                            }
+                        }
+                    }
+
+                    Spacer(minLength: 6)
+
+                    if let activityDate = deployment.activityDate {
+                        Text(DokployRelativeTime.shortString(since: activityDate, now: .now))
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundStyle(.tertiary)
+                    }
+                }
+
+                if let description = deployment.description, !description.isEmpty {
+                    Text(description)
+                        .font(.system(size: 10))
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(2)
+                }
+
+                if let errorMessage = deployment.errorMessage, !errorMessage.isEmpty {
+                    HStack(spacing: 4) {
+                        Image(systemName: "exclamationmark.circle.fill")
+                            .font(.system(size: 9))
+                            .foregroundStyle(.red.opacity(0.7))
+                        Text(errorMessage)
+                            .font(.system(size: 10))
+                            .foregroundStyle(.red.opacity(0.8))
+                            .lineLimit(3)
+                    }
+                    .padding(8)
+                    .background(
+                        RoundedRectangle(cornerRadius: 6)
+                            .fill(Color.red.opacity(0.05))
+                    )
+                }
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(isHovered ? Color.primary.opacity(0.04) : Color.clear)
+            )
+            .onHover { hovering in
+                withAnimation(.easeInOut(duration: 0.1)) {
+                    isHovered = hovering
+                }
+            }
+        }
+    }
+
+    private var statusLabel: String {
+        switch deployment.status {
+        case .running: return "Running"
+        case .done: return "Completed"
+        case .error: return "Failed"
+        case .cancelled: return "Cancelled"
+        }
+    }
+
+    private var statusColor: Color {
+        switch deployment.status {
+        case .running: return .blue
+        case .done: return .green
+        case .error: return .red
+        case .cancelled: return .orange
+        }
+    }
+
+    private var statusIcon: String {
+        switch deployment.status {
+        case .running: return "arrow.triangle.2.circlepath"
+        case .done: return "checkmark"
+        case .error: return "xmark"
+        case .cancelled: return "minus"
+        }
+    }
+
+    private var formattedDuration: String? {
+        guard let startStr = deployment.startedAt,
+              let start = DokployDateParser.parse(startStr) else {
+            return nil
+        }
+
+        let end: Date
+        if let finishStr = deployment.finishedAt,
+           let finish = DokployDateParser.parse(finishStr) {
+            end = finish
+        } else if deployment.status == .running {
+            end = Date()
+        } else {
+            return nil
+        }
+
+        let seconds = Int(end.timeIntervalSince(start))
+        if seconds < 60 {
+            return "\(seconds)s"
+        } else if seconds < 3600 {
+            let m = seconds / 60
+            let s = seconds % 60
+            return s > 0 ? "\(m)m \(s)s" : "\(m)m"
+        } else {
+            let h = seconds / 3600
+            let m = (seconds % 3600) / 60
+            return m > 0 ? "\(h)h \(m)m" : "\(h)h"
+        }
     }
 }
 

@@ -53,15 +53,28 @@ struct DokployAPIClient {
         )
     }
 
-    func endpointURL(for path: String) throws -> URL {
+    func endpointURL(for path: String, queryItems: [URLQueryItem] = []) throws -> URL {
         guard let baseURL = instance.normalizedBaseURL else {
             throw DokployAPIError.invalidBaseURL
         }
 
         let trimmedPath = path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-        return baseURL
+        let endpoint = baseURL
             .appendingPathComponent("api", isDirectory: true)
             .appendingPathComponent(trimmedPath, isDirectory: false)
+
+        guard !queryItems.isEmpty else {
+            return endpoint
+        }
+
+        guard var components = URLComponents(url: endpoint, resolvingAgainstBaseURL: false) else {
+            throw DokployAPIError.invalidBaseURL
+        }
+        components.queryItems = queryItems
+        guard let url = components.url else {
+            throw DokployAPIError.invalidBaseURL
+        }
+        return url
     }
 
     private func requestInventory() async throws -> [DokployProject] {
@@ -76,6 +89,15 @@ struct DokployAPIClient {
 
     private func request<Response: Decodable>(path: String) async throws -> Response {
         let endpoint = try endpointURL(for: path)
+        return try await request(url: endpoint)
+    }
+
+    private func request<Response: Decodable>(path: String, queryItems: [URLQueryItem]) async throws -> Response {
+        let endpoint = try endpointURL(for: path, queryItems: queryItems)
+        return try await request(url: endpoint)
+    }
+
+    private func request<Response: Decodable>(url endpoint: URL) async throws -> Response {
         var request = URLRequest(url: endpoint)
         request.httpMethod = "GET"
         request.timeoutInterval = 20
@@ -107,6 +129,23 @@ struct DokployAPIClient {
             return try JSONDecoder().decode(Response.self, from: data)
         } catch {
             throw DokployAPIError.decodingFailed(error)
+        }
+    }
+
+    func fetchDeploymentHistory(for entry: MonitoredApplication) async throws -> [DokployDeploymentRecord] {
+        switch entry.serviceType {
+        case .application:
+            return try await request(
+                path: "/deployment.all",
+                queryItems: [URLQueryItem(name: "applicationId", value: entry.applicationId)]
+            )
+        case .compose:
+            return try await request(
+                path: "/deployment.allByCompose",
+                queryItems: [URLQueryItem(name: "composeId", value: entry.applicationId)]
+            )
+        case .mariadb, .mongo, .mysql, .postgres, .redis, .libsql:
+            return []
         }
     }
 

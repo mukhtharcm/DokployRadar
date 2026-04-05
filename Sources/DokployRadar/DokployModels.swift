@@ -301,6 +301,10 @@ struct MonitoredApplication: Identifiable, Equatable {
     let serviceType: DokployServiceType
     let latestDeployment: DokployCentralizedDeployment?
 
+    var supportsDeploymentHistory: Bool {
+        serviceType == .application || serviceType == .compose
+    }
+
     var lastActivityDate: Date? {
         latestDeployment?.finishedAt.flatMap(DokployDateParser.parse)
             ?? latestDeployment?.startedAt.flatMap(DokployDateParser.parse)
@@ -370,6 +374,26 @@ struct MonitoredApplication: Identifiable, Equatable {
                 return "Error"
             }
         }
+    }
+}
+
+struct DokployDeploymentRecord: Decodable, Equatable, Identifiable {
+    let deploymentId: String
+    let title: String
+    let description: String?
+    let status: DokployDeploymentStatus
+    let createdAt: String
+    let startedAt: String?
+    let finishedAt: String?
+    let errorMessage: String?
+    let logPath: String?
+
+    var id: String { deploymentId }
+
+    var activityDate: Date? {
+        finishedAt.flatMap(DokployDateParser.parse)
+            ?? startedAt.flatMap(DokployDateParser.parse)
+            ?? DokployDateParser.parse(createdAt)
     }
 }
 
