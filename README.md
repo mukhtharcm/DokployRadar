@@ -42,3 +42,4 @@ The packager auto-generates the app icon and DMG background, and it installs `dm
 - Tokens are stored locally in Application Support for this prototype
 - Recent deployments currently mean deployments within the last hour
 - macOS notifications only work from the packaged `.app`, not direct `swift run` launches
+- Dokploy API research notes live in `Docs/dokploy-api-research.md`
