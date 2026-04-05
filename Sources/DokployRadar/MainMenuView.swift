@@ -342,13 +342,7 @@ struct MainMenuView: View {
                                             isSelected: selectedDashboardEntry?.id == entry.id,
                                             recentWindow: recentWindowInterval
                                         ) {
-                                            withAnimation(.easeInOut(duration: 0.2)) {
-                                                if selectedEntryID == entry.id {
-                                                    selectedEntryID = nil
-                                                } else {
-                                                    selectedEntryID = entry.id
-                                                }
-                                            }
+                                            selectedEntryID = entry.id
                                         }
                                     }
                                 }
@@ -357,24 +351,27 @@ struct MainMenuView: View {
                             }
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-                            if let selectedEntry = selectedDashboardEntry {
-                                Divider()
-                                    .padding(.vertical, 12)
+                            Divider()
+                                .padding(.vertical, 12)
 
+                            if let selectedEntry = selectedDashboardEntry {
                                 ServiceDetailPanel(
                                     entry: selectedEntry,
                                     instance: store.instances.first { $0.id == selectedEntry.instanceID },
                                     recentWindow: recentWindowInterval,
                                     onClose: {
-                                        withAnimation(.easeInOut(duration: 0.2)) {
-                                            selectedEntryID = nil
-                                        }
+                                        selectedEntryID = nil
                                     }
                                 )
                                 .frame(width: 360)
                                 .padding(.trailing, 20)
                                 .padding(.vertical, 12)
-                                .transition(.move(edge: .trailing).combined(with: .opacity))
+                                .id(selectedEntry.id)
+                            } else {
+                                inspectorEmptyState
+                                    .frame(width: 360)
+                                    .padding(.trailing, 20)
+                                    .padding(.vertical, 12)
                             }
                         }
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -861,6 +858,36 @@ struct MainMenuView: View {
     }
 
     // MARK: - Helpers
+
+    private var inspectorEmptyState: some View {
+        VStack(spacing: 14) {
+            Spacer()
+
+            ZStack {
+                Circle()
+                    .fill(Color.accentColor.opacity(0.04))
+                    .frame(width: 56, height: 56)
+
+                Image(systemName: "sidebar.right")
+                    .font(.system(size: 22, weight: .thin))
+                    .foregroundStyle(.quaternary)
+            }
+
+            VStack(spacing: 4) {
+                Text("Select a service")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.secondary)
+
+                Text("Click any service to inspect\nits details and deployments.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.tertiary)
+                    .multilineTextAlignment(.center)
+            }
+
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
 
     private var filteredEntries: [MonitoredApplication] {
         store.entries(for: selectedInstanceID, searchText: searchText)
