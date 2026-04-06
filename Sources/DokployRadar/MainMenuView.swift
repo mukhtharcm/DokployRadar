@@ -2454,9 +2454,14 @@ private struct ServiceDetailPanel: View {
                                                 .font(.system(size: 10))
                                                 .foregroundStyle(.tertiary)
                                         } else {
-                                            Text("Dokploy did not return any live monitoring samples for this application.")
-                                                .font(.system(size: 11))
-                                                .foregroundStyle(.secondary)
+                                            HStack(spacing: 6) {
+                                                Image(systemName: "waveform.path.ecg")
+                                                    .font(.system(size: 11))
+                                                    .foregroundStyle(.tertiary)
+                                                Text("Dokploy did not return any live monitoring samples for this application.")
+                                                    .font(.system(size: 11))
+                                                    .foregroundStyle(.secondary)
+                                            }
                                         }
 
                                         if let traefikConfig = diagnostics.traefikConfig, !traefikConfig.isEmpty {
@@ -2526,7 +2531,7 @@ private struct ServiceDetailPanel: View {
 
                                         if !diagnostics.containers.isEmpty {
                                             VStack(alignment: .leading, spacing: 10) {
-                                                Text("Resolved Containers")
+                                                Text("Container Details")
                                                     .font(.system(size: 11, weight: .semibold))
                                                     .foregroundStyle(.secondary)
 
@@ -2538,13 +2543,15 @@ private struct ServiceDetailPanel: View {
                                                                 .lineLimit(1)
                                                                 .help(container.name)
 
+                                                            let isRunning = container.state?.lowercased() == "running"
+                                                            let stateColor: Color = isRunning ? .green : .secondary
                                                             Text(container.stateLabel.uppercased())
                                                                 .font(.system(size: 9, weight: .bold, design: .rounded))
-                                                                .foregroundStyle(container.hasMonitoringSamples ? .green : .secondary)
+                                                                .foregroundStyle(stateColor)
                                                                 .padding(.horizontal, 7)
                                                                 .padding(.vertical, 3)
                                                                 .background(
-                                                                    (container.hasMonitoringSamples ? Color.green.opacity(0.14) : Color.primary.opacity(0.05)),
+                                                                    stateColor.opacity(isRunning ? 0.14 : 0.08),
                                                                     in: Capsule()
                                                                 )
 
