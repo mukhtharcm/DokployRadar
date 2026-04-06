@@ -645,6 +645,79 @@ final class DokployRadarTests: XCTestCase {
         XCTAssertTrue(diagnostics?.hasTraefikConfig == true)
     }
 
+    func testComposeDiagnosticsSummarizeContainerAvailability() {
+        let endpointPayload: [String: Any] = [
+            "serverIp": "57.129.131.157",
+            "enabledFeatures": false,
+            "metricsConfig": [
+                "server": [
+                    "port": 4500,
+                    "type": "Dokploy",
+                    "token": ""
+                ]
+            ]
+        ]
+
+        let endpoint = DokployServiceInspectorParser.monitoringEndpointSummary(from: endpointPayload)
+        let diagnostics = DokployServiceInspectorParser.composeDiagnostics(
+            containers: [
+                DokployComposeContainerDiagnostics(
+                    id: "c-1",
+                    name: "api-1",
+                    state: "running",
+                    monitoringRollup: nil
+                )
+            ],
+            metricsEndpoint: endpoint
+        )
+
+        XCTAssertEqual(endpoint?.providerType, "Dokploy")
+        XCTAssertEqual(endpoint?.baseURL, "http://57.129.131.157:4500")
+        XCTAssertEqual(endpoint?.availabilityLabel, "Disabled")
+        XCTAssertFalse(diagnostics.hasAnyMonitoringSamples)
+        XCTAssertEqual(diagnostics.containersWithMonitoringSamples, 0)
+        XCTAssertEqual(diagnostics.statusTitle, "No compose metrics returned")
+        XCTAssertTrue(diagnostics.statusMessage.contains("public monitoring API returned no stored samples"))
+    }
+
+    func testComposeDiagnosticsPreferStoredSamplesWhenAvailable() {
+        let rollup = DokployServiceInspectorParser.monitoringRollup(
+            from: [
+                "cpu": [
+                    ["time": "2026-04-06T00:01:00Z", "value": "1.20%"]
+                ],
+                "memory": [
+                    ["time": "2026-04-06T00:01:00Z", "value": ["used": "53.35MiB", "total": "11.4GiB"]]
+                ]
+            ]
+        )
+
+        let diagnostics = DokployServiceInspectorParser.composeDiagnostics(
+            containers: [
+                DokployComposeContainerDiagnostics(
+                    id: "c-1",
+                    name: "api-1",
+                    state: "running",
+                    monitoringRollup: rollup
+                ),
+                DokployComposeContainerDiagnostics(
+                    id: "c-2",
+                    name: "worker-1",
+                    state: "running",
+                    monitoringRollup: nil
+                )
+            ],
+            metricsEndpoint: nil
+        )
+
+        XCTAssertNotNil(rollup)
+        XCTAssertEqual(rollup?.sampleCount, 2)
+        XCTAssertTrue(diagnostics.hasAnyMonitoringSamples)
+        XCTAssertEqual(diagnostics.containersWithMonitoringSamples, 1)
+        XCTAssertEqual(diagnostics.statusTitle, "Container metrics available")
+        XCTAssertTrue(diagnostics.statusMessage.contains("1 of 2"))
+    }
+
     private static func makeSnapshot(for instance: DokployInstance, at date: Date) -> InstanceSnapshot {
         let deployment = DokployCentralizedDeployment(
             deploymentId: "dep-\(instance.id.uuidString)",

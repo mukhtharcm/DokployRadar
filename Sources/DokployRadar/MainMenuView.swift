@@ -2420,10 +2420,69 @@ private struct ServiceDetailPanel: View {
                             }
                         }
 
-                        if detail.hasDiagnosticsSection, let diagnostics = detail.applicationDiagnostics {
-                            inspectorCard(title: "Runtime Diagnostics", icon: "stethoscope") {
-                                VStack(alignment: .leading, spacing: 12) {
-                                    if diagnostics.hasMonitoringMetrics {
+                        if detail.hasDiagnosticsSection {
+                            if let diagnostics = detail.applicationDiagnostics {
+                                inspectorCard(title: "Runtime Diagnostics", icon: "stethoscope") {
+                                    VStack(alignment: .leading, spacing: 12) {
+                                        if diagnostics.hasMonitoringMetrics {
+                                            LazyVGrid(
+                                                columns: [
+                                                    GridItem(.flexible(), spacing: 8),
+                                                    GridItem(.flexible(), spacing: 8)
+                                                ],
+                                                alignment: .leading,
+                                                spacing: 8
+                                            ) {
+                                                ForEach(diagnostics.metrics) { metric in
+                                                    DetailFactCard(
+                                                        icon: metric.kind.icon,
+                                                        label: metric.kind.title,
+                                                        value: metric.displayValue
+                                                    )
+                                                }
+
+                                                if let latestTimestamp = diagnostics.latestTimestamp {
+                                                    DetailFactCard(
+                                                        icon: "clock.badge.checkmark",
+                                                        label: "Latest Sample",
+                                                        value: DokployRelativeTime.shortString(since: latestTimestamp, now: .now)
+                                                    )
+                                                }
+                                            }
+
+                                            Text("Showing the latest samples returned by Dokploy’s app monitoring endpoint.")
+                                                .font(.system(size: 10))
+                                                .foregroundStyle(.tertiary)
+                                        } else {
+                                            Text("Dokploy did not return any live monitoring samples for this application.")
+                                                .font(.system(size: 11))
+                                                .foregroundStyle(.secondary)
+                                        }
+
+                                        if let traefikConfig = diagnostics.traefikConfig, !traefikConfig.isEmpty {
+                                            DisclosureGroup("Traefik Config") {
+                                                ScrollView(.horizontal, showsIndicators: true) {
+                                                    Text(traefikConfig)
+                                                        .font(.system(size: 10, design: .monospaced))
+                                                        .foregroundStyle(.secondary)
+                                                        .textSelection(.enabled)
+                                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                                        .padding(10)
+                                                        .background(
+                                                            RoundedRectangle(cornerRadius: 8)
+                                                                .fill(Color.primary.opacity(0.04))
+                                                        )
+                                                }
+                                                .frame(maxHeight: 220)
+                                                .padding(.top, 6)
+                                            }
+                                            .font(.system(size: 11, weight: .medium))
+                                        }
+                                    }
+                                }
+                            } else if let diagnostics = detail.composeDiagnostics {
+                                inspectorCard(title: "Runtime Diagnostics", icon: "stethoscope") {
+                                    VStack(alignment: .leading, spacing: 12) {
                                         LazyVGrid(
                                             columns: [
                                                 GridItem(.flexible(), spacing: 8),
@@ -2432,50 +2491,91 @@ private struct ServiceDetailPanel: View {
                                             alignment: .leading,
                                             spacing: 8
                                         ) {
-                                            ForEach(diagnostics.metrics) { metric in
-                                                DetailFactCard(
-                                                    icon: metric.kind.icon,
-                                                    label: metric.kind.title,
-                                                    value: metric.displayValue
-                                                )
-                                            }
+                                            DetailFactCard(
+                                                icon: "shippingbox",
+                                                label: "Resolved Containers",
+                                                value: "\(diagnostics.containers.count)"
+                                            )
+                                            DetailFactCard(
+                                                icon: diagnostics.hasAnyMonitoringSamples ? "waveform.path.ecg" : "exclamationmark.bubble",
+                                                label: "Containers With Samples",
+                                                value: "\(diagnostics.containersWithMonitoringSamples)",
+                                                valueColor: diagnostics.hasAnyMonitoringSamples ? .green : .secondary
+                                            )
 
-                                            if let latestTimestamp = diagnostics.latestTimestamp {
+                                            if let metricsEndpoint = diagnostics.metricsEndpoint {
                                                 DetailFactCard(
-                                                    icon: "clock.badge.checkmark",
-                                                    label: "Latest Sample",
-                                                    value: DokployRelativeTime.shortString(since: latestTimestamp, now: .now)
+                                                    icon: "dot.radiowaves.left.and.right",
+                                                    label: "External Metrics",
+                                                    value: metricsEndpoint.availabilityLabel,
+                                                    valueColor: metricsEndpoint.isConfigured ? .green : .secondary
                                                 )
+                                                if metricsEndpoint.isConfigured, let baseURL = metricsEndpoint.baseURL {
+                                                    DetailFactCard(
+                                                        icon: "network",
+                                                        label: "Metrics Endpoint",
+                                                        value: baseURL
+                                                    )
+                                                }
                                             }
                                         }
 
-                                        Text("Showing the latest samples returned by Dokploy’s app monitoring endpoint.")
-                                            .font(.system(size: 10))
-                                            .foregroundStyle(.tertiary)
-                                    } else {
-                                        Text("Dokploy did not return any live monitoring samples for this application.")
+                                        Text(diagnostics.statusMessage)
                                             .font(.system(size: 11))
                                             .foregroundStyle(.secondary)
-                                    }
 
-                                    if let traefikConfig = diagnostics.traefikConfig, !traefikConfig.isEmpty {
-                                        DisclosureGroup("Traefik Config") {
-                                            ScrollView(.horizontal, showsIndicators: true) {
-                                                Text(traefikConfig)
-                                                    .font(.system(size: 10, design: .monospaced))
+                                        if !diagnostics.containers.isEmpty {
+                                            VStack(alignment: .leading, spacing: 10) {
+                                                Text("Resolved Containers")
+                                                    .font(.system(size: 11, weight: .semibold))
                                                     .foregroundStyle(.secondary)
-                                                    .textSelection(.enabled)
+
+                                                ForEach(diagnostics.containers) { container in
+                                                    VStack(alignment: .leading, spacing: 6) {
+                                                        HStack(alignment: .center, spacing: 8) {
+                                                            Text(container.name)
+                                                                .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                                                                .lineLimit(1)
+                                                                .help(container.name)
+
+                                                            Text(container.stateLabel.uppercased())
+                                                                .font(.system(size: 9, weight: .bold, design: .rounded))
+                                                                .foregroundStyle(container.hasMonitoringSamples ? .green : .secondary)
+                                                                .padding(.horizontal, 7)
+                                                                .padding(.vertical, 3)
+                                                                .background(
+                                                                    (container.hasMonitoringSamples ? Color.green.opacity(0.14) : Color.primary.opacity(0.05)),
+                                                                    in: Capsule()
+                                                                )
+
+                                                            Spacer()
+                                                        }
+
+                                                        if let rollup = container.monitoringRollup,
+                                                           rollup.sampleCount > 0 {
+                                                            Text(
+                                                                rollup.latestTimestamp.map {
+                                                                    "\(rollup.sampleCount) samples · latest \(DokployRelativeTime.shortString(since: $0, now: .now))"
+                                                                } ?? "\(rollup.sampleCount) samples available"
+                                                            )
+                                                            .font(.system(size: 10))
+                                                            .foregroundStyle(.secondary)
+                                                        } else {
+                                                            Text("No stored samples returned for this container.")
+                                                                .font(.system(size: 10))
+                                                                .foregroundStyle(.tertiary)
+                                                        }
+                                                    }
                                                     .frame(maxWidth: .infinity, alignment: .leading)
-                                                    .padding(10)
+                                                    .padding(.horizontal, 10)
+                                                    .padding(.vertical, 8)
                                                     .background(
                                                         RoundedRectangle(cornerRadius: 8)
                                                             .fill(Color.primary.opacity(0.04))
                                                     )
+                                                }
                                             }
-                                            .frame(maxHeight: 220)
-                                            .padding(.top, 6)
                                         }
-                                        .font(.system(size: 11, weight: .medium))
                                     }
                                 }
                             }

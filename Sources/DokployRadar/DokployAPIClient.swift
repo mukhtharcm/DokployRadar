@@ -122,6 +122,12 @@ struct DokployAPIClient {
         return array
     }
 
+    private func requestJSONValue(path: String, queryItems: [URLQueryItem] = []) async throws -> Any {
+        let endpoint = try endpointURL(for: path, queryItems: queryItems)
+        let data = try await requestData(url: endpoint)
+        return try JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed])
+    }
+
     private func requestString(path: String, queryItems: [URLQueryItem] = []) async throws -> String {
         let endpoint = try endpointURL(for: path, queryItems: queryItems)
         let data = try await requestData(url: endpoint)
@@ -231,13 +237,15 @@ struct DokployAPIClient {
                 composeID: entry.applicationId,
                 serviceNames: serviceNames
             )
+            let diagnostics = await fetchComposeDiagnostics(entry: entry, payload: payload)
 
-            return DokployServiceInspectorParser.composeDetails(
+            let detail = DokployServiceInspectorParser.composeDetails(
                 from: payload,
                 serviceNames: serviceNames,
                 mountGroups: mountGroups,
                 renderedCompose: renderedCompose
             )
+            return DokployServiceInspectorParser.applyingComposeDiagnostics(diagnostics, to: detail)
 
         case .mariadb, .mongo, .mysql, .postgres, .redis, .libsql:
             return DokployServiceInspectorData(
@@ -259,7 +267,8 @@ struct DokployAPIClient {
                 composeServiceNames: [],
                 composeMountGroups: [],
                 renderedCompose: nil,
-                applicationDiagnostics: nil
+                applicationDiagnostics: nil,
+                composeDiagnostics: nil
             )
         }
     }
@@ -269,10 +278,7 @@ struct DokployAPIClient {
             return nil
         }
 
-        return try? await requestJSONObject(
-            path: "/application.readAppMonitoring",
-            queryItems: [URLQueryItem(name: "appName", value: appName)]
-        )
+        return try? await requestMonitoringPayload(appName: appName)
     }
 
     private func fetchTraefikConfig(applicationID: String) async -> String? {
@@ -280,6 +286,104 @@ struct DokployAPIClient {
             path: "/application.readTraefikConfig",
             queryItems: [URLQueryItem(name: "applicationId", value: applicationID)]
         )
+    }
+
+    private func requestMonitoringPayload(appName: String) async throws -> [String: Any]? {
+        let payload = try await requestJSONValue(
+            path: "/application.readAppMonitoring",
+            queryItems: [URLQueryItem(name: "appName", value: appName)]
+        )
+
+        if payload is NSNull {
+            return nil
+        }
+
+        guard let dictionary = payload as? [String: Any] else {
+            throw DokployAPIError.invalidResponse
+        }
+        return dictionary
+    }
+
+    private func fetchComposeDiagnostics(
+        entry: MonitoredApplication,
+        payload: [String: Any]
+    ) async -> DokployComposeDiagnostics {
+        let appName = Self.firstNonEmptyString(entry.appName, payload["appName"])
+        let appType = composeMonitoringAppType(from: payload["composeType"])
+        let serverID = Self.firstNonEmptyString(payload["serverId"])
+
+        async let metricsEndpointTask = fetchMonitoringEndpointSummary()
+        async let containersTask = fetchComposeContainerDiagnostics(
+            appName: appName,
+            appType: appType,
+            serverID: serverID
+        )
+
+        return DokployServiceInspectorParser.composeDiagnostics(
+            containers: await containersTask,
+            metricsEndpoint: await metricsEndpointTask
+        )
+    }
+
+    private func fetchMonitoringEndpointSummary() async -> DokployMonitoringEndpointSummary? {
+        guard let payload = try? await requestJSONObject(path: "/user.getMetricsToken") else {
+            return nil
+        }
+        return DokployServiceInspectorParser.monitoringEndpointSummary(from: payload)
+    }
+
+    private func fetchComposeContainerDiagnostics(
+        appName: String?,
+        appType: String,
+        serverID: String?
+    ) async -> [DokployComposeContainerDiagnostics] {
+        guard let appName, !appName.isEmpty else {
+            return []
+        }
+
+        var queryItems = [
+            URLQueryItem(name: "appName", value: appName),
+            URLQueryItem(name: "appType", value: appType)
+        ]
+        if let serverID, !serverID.isEmpty {
+            queryItems.append(URLQueryItem(name: "serverId", value: serverID))
+        }
+
+        let containers: [DokployResolvedContainer]
+        do {
+            containers = try await request(path: "/docker.getContainersByAppNameMatch", queryItems: queryItems)
+        } catch {
+            return []
+        }
+
+        return await withTaskGroup(of: DokployComposeContainerDiagnostics.self, returning: [DokployComposeContainerDiagnostics].self) { group in
+            for container in containers {
+                group.addTask {
+                    let monitoring = try? await requestMonitoringPayload(appName: container.name)
+                    let rollup = monitoring.flatMap(DokployServiceInspectorParser.monitoringRollup(from:))
+                    return DokployComposeContainerDiagnostics(
+                        id: container.containerId,
+                        name: container.name,
+                        state: container.state,
+                        monitoringRollup: rollup
+                    )
+                }
+            }
+
+            var resolved: [DokployComposeContainerDiagnostics] = []
+            for await item in group {
+                resolved.append(item)
+            }
+            return resolved
+        }
+    }
+
+    private func composeMonitoringAppType(from value: Any?) -> String {
+        let raw = Self.firstNonEmptyString(value)?.lowercased() ?? ""
+        if raw.contains("docker-compose") {
+            return "docker-compose"
+        }
+        return "stack"
     }
 
     private func fetchQueuedDeployments() async throws -> [DokployQueuedDeployment] {
@@ -436,6 +540,12 @@ struct DokployAPIClient {
             }
         }
         return nil
+    }
+
+    private struct DokployResolvedContainer: Decodable {
+        let containerId: String
+        let name: String
+        let state: String?
     }
 
     private func buildEntries(

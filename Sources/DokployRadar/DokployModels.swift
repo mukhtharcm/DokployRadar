@@ -756,6 +756,109 @@ struct DokployApplicationDiagnostics: Equatable {
     }
 }
 
+struct DokployMonitoringRollup: Equatable {
+    let sampleCount: Int
+    let latestTimestamp: Date?
+}
+
+struct DokployComposeContainerDiagnostics: Equatable, Identifiable {
+    let id: String
+    let name: String
+    let state: String?
+    let monitoringRollup: DokployMonitoringRollup?
+
+    var hasMonitoringSamples: Bool {
+        (monitoringRollup?.sampleCount ?? 0) > 0
+    }
+
+    var stateLabel: String {
+        guard let state, !state.isEmpty else {
+            return "Unknown"
+        }
+
+        return state
+            .replacingOccurrences(of: "-", with: " ")
+            .replacingOccurrences(of: "_", with: " ")
+            .capitalized
+    }
+}
+
+struct DokployMonitoringEndpointSummary: Equatable {
+    let providerType: String?
+    let baseURL: String?
+    let enabledFeatures: Bool
+    let tokenAvailable: Bool
+
+    var isConfigured: Bool {
+        enabledFeatures && tokenAvailable && baseURL != nil
+    }
+
+    var availabilityLabel: String {
+        if isConfigured {
+            return "Configured"
+        }
+        if enabledFeatures {
+            return "Needs Setup"
+        }
+        return "Disabled"
+    }
+}
+
+struct DokployComposeDiagnostics: Equatable {
+    let containers: [DokployComposeContainerDiagnostics]
+    let metricsEndpoint: DokployMonitoringEndpointSummary?
+
+    var hasResolvedContainers: Bool {
+        !containers.isEmpty
+    }
+
+    var containersWithMonitoringSamples: Int {
+        containers.filter(\.hasMonitoringSamples).count
+    }
+
+    var hasAnyMonitoringSamples: Bool {
+        containersWithMonitoringSamples > 0
+    }
+
+    var hasAnyDiagnostics: Bool {
+        true
+    }
+
+    var statusTitle: String {
+        if hasAnyMonitoringSamples {
+            return "Container metrics available"
+        }
+        if hasResolvedContainers {
+            return "No compose metrics returned"
+        }
+        return "No containers resolved"
+    }
+
+    var statusMessage: String {
+        if hasAnyMonitoringSamples {
+            return "Dokploy returned stored samples for \(containersWithMonitoringSamples) of \(containers.count) resolved containers."
+        }
+
+        if hasResolvedContainers {
+            if let metricsEndpoint, metricsEndpoint.isConfigured {
+                return "This instance exposes an external metrics endpoint, but Dokploy did not return stored compose samples for the resolved containers."
+            }
+
+            if let metricsEndpoint, metricsEndpoint.enabledFeatures {
+                return "Dokploy resolved \(containers.count) containers, but external metrics are not fully configured and no stored samples were returned."
+            }
+
+            return "Dokploy resolved \(containers.count) containers, but the public monitoring API returned no stored samples for them."
+        }
+
+        if let metricsEndpoint, metricsEndpoint.isConfigured {
+            return "No compose containers were resolved, but this instance does expose an external metrics endpoint."
+        }
+
+        return "Dokploy did not return any concrete containers for this compose service."
+    }
+}
+
 struct DokployServiceInspectorData: Equatable {
     let sourceType: String?
     let configurationType: String?
@@ -776,6 +879,7 @@ struct DokployServiceInspectorData: Equatable {
     let composeMountGroups: [DokployComposeServiceMountGroup]
     let renderedCompose: String?
     let applicationDiagnostics: DokployApplicationDiagnostics?
+    let composeDiagnostics: DokployComposeDiagnostics?
 
     var hasSourceSection: Bool {
         sourceType != nil
@@ -810,6 +914,7 @@ struct DokployServiceInspectorData: Equatable {
 
     var hasDiagnosticsSection: Bool {
         applicationDiagnostics?.hasAnyDiagnostics == true
+            || composeDiagnostics?.hasAnyDiagnostics == true
     }
 
     static func unsupportedMessage(for serviceType: DokployServiceType) -> String {
@@ -844,7 +949,8 @@ enum DokployServiceInspectorParser {
             composeServiceNames: [],
             composeMountGroups: [],
             renderedCompose: nil,
-            applicationDiagnostics: nil
+            applicationDiagnostics: nil,
+            composeDiagnostics: nil
         )
     }
 
@@ -879,7 +985,8 @@ enum DokployServiceInspectorParser {
             composeServiceNames: serviceNames,
             composeMountGroups: mountGroups,
             renderedCompose: nonEmptyString(renderedCompose),
-            applicationDiagnostics: nil
+            applicationDiagnostics: nil,
+            composeDiagnostics: nil
         )
     }
 
@@ -906,7 +1013,36 @@ enum DokployServiceInspectorParser {
             composeServiceNames: detail.composeServiceNames,
             composeMountGroups: detail.composeMountGroups,
             renderedCompose: detail.renderedCompose,
-            applicationDiagnostics: diagnostics
+            applicationDiagnostics: diagnostics,
+            composeDiagnostics: nil
+        )
+    }
+
+    static func applyingComposeDiagnostics(
+        _ diagnostics: DokployComposeDiagnostics?,
+        to detail: DokployServiceInspectorData
+    ) -> DokployServiceInspectorData {
+        DokployServiceInspectorData(
+            sourceType: detail.sourceType,
+            configurationType: detail.configurationType,
+            repository: detail.repository,
+            branch: detail.branch,
+            autoDeployEnabled: detail.autoDeployEnabled,
+            previewDeploymentsEnabled: detail.previewDeploymentsEnabled,
+            previewDeploymentCount: detail.previewDeploymentCount,
+            deploymentCount: detail.deploymentCount,
+            environmentVariableCount: detail.environmentVariableCount,
+            mountCount: detail.mountCount,
+            watchPathCount: detail.watchPathCount,
+            domainLabels: detail.domainLabels,
+            portLabels: detail.portLabels,
+            mountSummaries: detail.mountSummaries,
+            watchPaths: detail.watchPaths,
+            composeServiceNames: detail.composeServiceNames,
+            composeMountGroups: detail.composeMountGroups,
+            renderedCompose: detail.renderedCompose,
+            applicationDiagnostics: detail.applicationDiagnostics,
+            composeDiagnostics: diagnostics
         )
     }
 
@@ -920,6 +1056,55 @@ enum DokployServiceInspectorParser {
         let normalizedTraefik = nonEmptyString(traefikConfig)
         let diagnostics = DokployApplicationDiagnostics(metrics: metrics, traefikConfig: normalizedTraefik)
         return diagnostics.hasAnyDiagnostics ? diagnostics : nil
+    }
+
+    static func monitoringRollup(from monitoringPayload: [String: Any]) -> DokployMonitoringRollup? {
+        let metrics = DokployMonitoringMetricKind.allCases.compactMap { kind -> DokployMonitoringMetricSnapshot? in
+            monitoringMetric(kind: kind, from: monitoringPayload[kind.rawValue])
+        }
+
+        guard !metrics.isEmpty else {
+            return nil
+        }
+
+        return DokployMonitoringRollup(
+            sampleCount: metrics.reduce(0) { $0 + $1.sampleCount },
+            latestTimestamp: metrics.compactMap(\.lastTimestamp).max()
+        )
+    }
+
+    static func monitoringEndpointSummary(from payload: [String: Any]) -> DokployMonitoringEndpointSummary? {
+        guard !payload.isEmpty else {
+            return nil
+        }
+
+        let metricsConfig = dictionary(payload["metricsConfig"])
+        let server = metricsConfig.flatMap { dictionary($0["server"]) }
+        let serverIP = nonEmptyString(payload["serverIp"])
+        let port = nonEmptyString(server?["port"]) ?? (server?["port"] as? NSNumber)?.stringValue
+        let providerType = normalizedLabel(server?["type"])
+        let baseURL = [serverIP, port].compactMap { $0 }.count == 2 ? "http://\(serverIP!):\(port!)" : nil
+        let tokenAvailable = nonEmptyString(server?["token"]) != nil
+        let enabledFeatures = payload["enabledFeatures"] as? Bool ?? false
+
+        return DokployMonitoringEndpointSummary(
+            providerType: providerType,
+            baseURL: baseURL,
+            enabledFeatures: enabledFeatures,
+            tokenAvailable: tokenAvailable
+        )
+    }
+
+    static func composeDiagnostics(
+        containers: [DokployComposeContainerDiagnostics],
+        metricsEndpoint: DokployMonitoringEndpointSummary?
+    ) -> DokployComposeDiagnostics {
+        DokployComposeDiagnostics(
+            containers: containers.sorted {
+                $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
+            },
+            metricsEndpoint: metricsEndpoint
+        )
     }
 
     private static func nonEmptyString(_ value: Any?) -> String? {
