@@ -2331,7 +2331,7 @@ private struct ServiceDetailPanel: View {
                 )
 
             case .loaded(let detail):
-                if !(detail.hasSourceSection || detail.hasRoutingSection || detail.hasRuntimeSection || detail.hasStorageSection || detail.hasComposeInternals) {
+                if !(detail.hasSourceSection || detail.hasRoutingSection || detail.hasRuntimeSection || detail.hasDiagnosticsSection || detail.hasStorageSection || detail.hasComposeInternals) {
                     detailMessage(
                         icon: "slider.horizontal.3",
                         title: "No extra service metadata",
@@ -2416,6 +2416,67 @@ private struct ServiceDetailPanel: View {
 
                                 if !detail.watchPaths.isEmpty {
                                     inspectorChipGroup(title: "Watched Paths", values: detail.watchPaths)
+                                }
+                            }
+                        }
+
+                        if detail.hasDiagnosticsSection, let diagnostics = detail.applicationDiagnostics {
+                            inspectorCard(title: "Runtime Diagnostics", icon: "stethoscope") {
+                                VStack(alignment: .leading, spacing: 12) {
+                                    if diagnostics.hasMonitoringMetrics {
+                                        LazyVGrid(
+                                            columns: [
+                                                GridItem(.flexible(), spacing: 8),
+                                                GridItem(.flexible(), spacing: 8)
+                                            ],
+                                            alignment: .leading,
+                                            spacing: 8
+                                        ) {
+                                            ForEach(diagnostics.metrics) { metric in
+                                                DetailFactCard(
+                                                    icon: metric.kind.icon,
+                                                    label: metric.kind.title,
+                                                    value: metric.displayValue
+                                                )
+                                            }
+
+                                            if let latestTimestamp = diagnostics.latestTimestamp {
+                                                DetailFactCard(
+                                                    icon: "clock.badge.checkmark",
+                                                    label: "Latest Sample",
+                                                    value: DokployRelativeTime.shortString(since: latestTimestamp, now: .now)
+                                                )
+                                            }
+                                        }
+
+                                        Text("Showing the latest samples returned by Dokploy’s app monitoring endpoint.")
+                                            .font(.system(size: 10))
+                                            .foregroundStyle(.tertiary)
+                                    } else {
+                                        Text("Dokploy did not return any live monitoring samples for this application.")
+                                            .font(.system(size: 11))
+                                            .foregroundStyle(.secondary)
+                                    }
+
+                                    if let traefikConfig = diagnostics.traefikConfig, !traefikConfig.isEmpty {
+                                        DisclosureGroup("Traefik Config") {
+                                            ScrollView(.horizontal, showsIndicators: true) {
+                                                Text(traefikConfig)
+                                                    .font(.system(size: 10, design: .monospaced))
+                                                    .foregroundStyle(.secondary)
+                                                    .textSelection(.enabled)
+                                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                                    .padding(10)
+                                                    .background(
+                                                        RoundedRectangle(cornerRadius: 8)
+                                                            .fill(Color.primary.opacity(0.04))
+                                                    )
+                                            }
+                                            .frame(maxHeight: 220)
+                                            .padding(.top, 6)
+                                        }
+                                        .font(.system(size: 11, weight: .medium))
+                                    }
                                 }
                             }
                         }

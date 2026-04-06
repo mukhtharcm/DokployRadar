@@ -613,6 +613,38 @@ final class DokployRadarTests: XCTestCase {
         XCTAssertTrue(detail.renderedCompose?.contains("services:") == true)
     }
 
+    func testApplicationDiagnosticsParserSummarizesMonitoringAndTraefik() {
+        let monitoringPayload: [String: Any] = [
+            "cpu": [
+                ["time": "2026-04-06T00:00:00Z", "value": "0.30%"],
+                ["time": "2026-04-06T00:01:00Z", "value": "1.20%"]
+            ],
+            "memory": [
+                ["time": "2026-04-06T00:01:00Z", "value": ["used": "53.35MiB", "total": "11.4GiB"]]
+            ],
+            "network": [
+                ["time": "2026-04-06T00:01:00Z", "value": ["inputMb": "1.3kB", "outputMb": "252B"]]
+            ],
+            "block": [
+                ["time": "2026-04-06T00:01:00Z", "value": ["readMb": "0B", "writeMb": "4.1kB"]]
+            ],
+            "disk": []
+        ]
+
+        let diagnostics = DokployServiceInspectorParser.applicationDiagnostics(
+            from: monitoringPayload,
+            traefikConfig: "http:\n  routers:\n    example:\n      rule: Host(`example.com`)"
+        )
+
+        XCTAssertNotNil(diagnostics)
+        XCTAssertEqual(diagnostics?.metrics.count, 4)
+        XCTAssertEqual(diagnostics?.metrics.first(where: { $0.kind == .cpu })?.displayValue, "1.20%")
+        XCTAssertEqual(diagnostics?.metrics.first(where: { $0.kind == .memory })?.displayValue, "53.35MiB · of 11.4GiB")
+        XCTAssertEqual(diagnostics?.metrics.first(where: { $0.kind == .network })?.displayValue, "in 1.3kB · out 252B")
+        XCTAssertEqual(diagnostics?.metrics.first(where: { $0.kind == .block })?.displayValue, "read 0B · write 4.1kB")
+        XCTAssertTrue(diagnostics?.hasTraefikConfig == true)
+    }
+
     private static func makeSnapshot(for instance: DokployInstance, at date: Date) -> InstanceSnapshot {
         let deployment = DokployCentralizedDeployment(
             deploymentId: "dep-\(instance.id.uuidString)",

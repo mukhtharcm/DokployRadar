@@ -125,6 +125,9 @@ struct DokployAPIClient {
     private func requestString(path: String, queryItems: [URLQueryItem] = []) async throws -> String {
         let endpoint = try endpointURL(for: path, queryItems: queryItems)
         let data = try await requestData(url: endpoint)
+        if let decodedString = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]) as? String {
+            return decodedString
+        }
         guard let text = String(data: data, encoding: .utf8) else {
             throw DokployAPIError.invalidResponse
         }
@@ -191,11 +194,20 @@ struct DokployAPIClient {
     func fetchInspectorDetail(for entry: MonitoredApplication) async throws -> DokployServiceInspectorData {
         switch entry.serviceType {
         case .application:
-            let payload = try await requestJSONObject(
+            async let payloadTask = requestJSONObject(
                 path: "/application.one",
                 queryItems: [URLQueryItem(name: "applicationId", value: entry.applicationId)]
             )
-            return DokployServiceInspectorParser.applicationDetails(from: payload)
+            async let monitoringTask = fetchApplicationMonitoring(appName: entry.appName)
+            async let traefikTask = fetchTraefikConfig(applicationID: entry.applicationId)
+
+            let payload = try await payloadTask
+            let baseDetail = DokployServiceInspectorParser.applicationDetails(from: payload)
+            let diagnostics = DokployServiceInspectorParser.applicationDiagnostics(
+                from: await monitoringTask ?? [:],
+                traefikConfig: await traefikTask
+            )
+            return DokployServiceInspectorParser.applyingDiagnostics(diagnostics, to: baseDetail)
 
         case .compose:
             async let payloadTask = requestJSONObject(
@@ -246,9 +258,28 @@ struct DokployAPIClient {
                 watchPaths: [],
                 composeServiceNames: [],
                 composeMountGroups: [],
-                renderedCompose: nil
+                renderedCompose: nil,
+                applicationDiagnostics: nil
             )
         }
+    }
+
+    private func fetchApplicationMonitoring(appName: String?) async -> [String: Any]? {
+        guard let appName, !appName.isEmpty else {
+            return nil
+        }
+
+        return try? await requestJSONObject(
+            path: "/application.readAppMonitoring",
+            queryItems: [URLQueryItem(name: "appName", value: appName)]
+        )
+    }
+
+    private func fetchTraefikConfig(applicationID: String) async -> String? {
+        try? await requestString(
+            path: "/application.readTraefikConfig",
+            queryItems: [URLQueryItem(name: "applicationId", value: applicationID)]
+        )
     }
 
     private func fetchQueuedDeployments() async throws -> [DokployQueuedDeployment] {

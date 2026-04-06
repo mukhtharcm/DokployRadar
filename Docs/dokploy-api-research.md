@@ -291,6 +291,89 @@ curl -X POST \
   -d '{"applicationId":"YOUR_APPLICATION_ID"}'
 ```
 
+### Monitoring and Container Metrics
+
+Used for runtime monitoring, especially when a compose service needs to be
+resolved down to concrete containers.
+
+```text
+GET /application.readAppMonitoring?appName=...
+GET /docker.getContainersByAppNameMatch?appName=...&appType=stack|docker-compose
+GET /user.getMetricsToken
+GET /user.getContainerMetrics?url=...&token=...&appName=...&dataPoints=...
+WS  /listen-docker-stats-monitoring?appName=...&appType=application|stack|docker-compose
+POST /server.setupMonitoring
+POST /admin.setupMonitoring
+POST /settings.cleanMonitoring
+```
+
+Notes:
+
+- `application.readAppMonitoring` is the only published container-metrics route
+  in the application router.
+- There is no published `compose.readAppMonitoring` endpoint in Dokploy's
+  OpenAPI spec.
+- `docker.getContainersByAppNameMatch` is the bridge for compose monitoring.
+  It resolves a compose service to one or more container names.
+- Dokploy's own compose monitoring UI is container-centric:
+  1. resolve containers with `docker.getContainersByAppNameMatch`
+  2. select a concrete container name
+  3. fetch historical stats for that container name
+  4. open a live websocket stream for that container name
+- The websocket route `/listen-docker-stats-monitoring` is used by Dokploy's
+  web UI for live updates, but it authenticates with the browser session rather
+  than `x-api-key`.
+- In live probing against the tested instance:
+  - `docker.getContainersByAppNameMatch` worked with `x-api-key`
+  - `application.readAppMonitoring` returned `null` for sampled compose
+    container names
+  - `user.getMetricsToken` worked with `x-api-key`
+  - `user.getContainerMetrics` is present in the spec, but the tested instance
+    returned `enabledFeatures: false` and an empty metrics token, so the paid
+    monitoring path was not usable there
+
+Implication:
+
+- Compose monitoring exists in Dokploy's product, but there is no clean,
+  compose-specific public API route equivalent to
+  `application.readAppMonitoring`.
+- For third-party clients like `Dokploy Radar`, compose monitoring should be
+  treated as conditional:
+  - historical data may be absent
+  - the free live-monitoring path depends on a browser-session websocket
+  - paid/external monitoring may be available via `user.getMetricsToken` and
+    `user.getContainerMetrics`
+
+Examples:
+
+```bash
+curl -X GET \
+  'https://your-host/api/docker.getContainersByAppNameMatch?appName=YOUR_COMPOSE_APP_NAME&appType=stack' \
+  -H 'accept: application/json' \
+  -H 'x-api-key: YOUR_TOKEN'
+```
+
+```bash
+curl -X GET \
+  'https://your-host/api/application.readAppMonitoring?appName=YOUR_CONTAINER_NAME' \
+  -H 'accept: application/json' \
+  -H 'x-api-key: YOUR_TOKEN'
+```
+
+```bash
+curl -X GET \
+  'https://your-host/api/user.getMetricsToken' \
+  -H 'accept: application/json' \
+  -H 'x-api-key: YOUR_TOKEN'
+```
+
+```bash
+curl -X GET \
+  'https://your-host/api/user.getContainerMetrics?url=MONITORING_BASE_URL&token=MONITORING_TOKEN&appName=YOUR_CONTAINER_NAME&dataPoints=50' \
+  -H 'accept: application/json' \
+  -H 'x-api-key: YOUR_TOKEN'
+```
+
 ### Compose
 
 Used for compose-first monitoring and safe compose actions.
@@ -633,6 +716,15 @@ Things to remember when building against Dokploy:
 - `compose.getConvertedCompose` returns raw text, not structured JSON.
 - `compose.loadMountsByService` returns Docker-style keys like `Source` and `Destination`, so parsing should be case-tolerant.
 - `application.readAppMonitoring` takes `appName`, not `applicationId`.
+- Compose monitoring is not exposed as a published `compose.*` monitoring route.
+  Dokploy's own compose UI resolves container names first, then uses generic
+  monitoring paths.
+- The free live-monitoring websocket uses browser-session auth, not `x-api-key`.
+  That makes it unsuitable as a stable public integration surface for a desktop
+  client.
+- `docker.getContainersByAppNameMatch`, `user.getMetricsToken`, and
+  `user.getContainerMetrics` are the most relevant monitoring-adjacent routes
+  for compose services.
 - `server.getServerMetrics` uses `url` + `token` + `dataPoints` per the published spec.
 
 ## Recommended Product Directions Based on the API

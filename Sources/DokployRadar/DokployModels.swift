@@ -678,6 +678,84 @@ struct DokployComposeServiceMountGroup: Equatable, Identifiable {
     let mounts: [DokployMountSummary]
 }
 
+enum DokployMonitoringMetricKind: String, CaseIterable, Equatable, Identifiable {
+    case cpu
+    case memory
+    case disk
+    case network
+    case block
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .cpu:
+            return "CPU"
+        case .memory:
+            return "Memory"
+        case .disk:
+            return "Disk"
+        case .network:
+            return "Network"
+        case .block:
+            return "Block I/O"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .cpu:
+            return "cpu"
+        case .memory:
+            return "memorychip"
+        case .disk:
+            return "internaldrive"
+        case .network:
+            return "arrow.left.arrow.right"
+        case .block:
+            return "externaldrive.badge.timemachine"
+        }
+    }
+}
+
+struct DokployMonitoringMetricSnapshot: Equatable, Identifiable {
+    let kind: DokployMonitoringMetricKind
+    let sampleCount: Int
+    let lastTimestamp: Date?
+    let primaryValue: String
+    let secondaryValue: String?
+
+    var id: DokployMonitoringMetricKind { kind }
+
+    var displayValue: String {
+        if let secondaryValue, !secondaryValue.isEmpty {
+            return "\(primaryValue) · \(secondaryValue)"
+        }
+        return primaryValue
+    }
+}
+
+struct DokployApplicationDiagnostics: Equatable {
+    let metrics: [DokployMonitoringMetricSnapshot]
+    let traefikConfig: String?
+
+    var latestTimestamp: Date? {
+        metrics.compactMap(\.lastTimestamp).max()
+    }
+
+    var hasMonitoringMetrics: Bool {
+        !metrics.isEmpty
+    }
+
+    var hasTraefikConfig: Bool {
+        traefikConfig?.isEmpty == false
+    }
+
+    var hasAnyDiagnostics: Bool {
+        hasMonitoringMetrics || hasTraefikConfig
+    }
+}
+
 struct DokployServiceInspectorData: Equatable {
     let sourceType: String?
     let configurationType: String?
@@ -697,6 +775,7 @@ struct DokployServiceInspectorData: Equatable {
     let composeServiceNames: [String]
     let composeMountGroups: [DokployComposeServiceMountGroup]
     let renderedCompose: String?
+    let applicationDiagnostics: DokployApplicationDiagnostics?
 
     var hasSourceSection: Bool {
         sourceType != nil
@@ -727,6 +806,10 @@ struct DokployServiceInspectorData: Equatable {
 
     var hasComposeInternals: Bool {
         !composeServiceNames.isEmpty || renderedCompose?.isEmpty == false
+    }
+
+    var hasDiagnosticsSection: Bool {
+        applicationDiagnostics?.hasAnyDiagnostics == true
     }
 
     static func unsupportedMessage(for serviceType: DokployServiceType) -> String {
@@ -760,7 +843,8 @@ enum DokployServiceInspectorParser {
             watchPaths: stringArray(from: payload["watchPaths"]),
             composeServiceNames: [],
             composeMountGroups: [],
-            renderedCompose: nil
+            renderedCompose: nil,
+            applicationDiagnostics: nil
         )
     }
 
@@ -794,8 +878,48 @@ enum DokployServiceInspectorParser {
             watchPaths: stringArray(from: payload["watchPaths"]),
             composeServiceNames: serviceNames,
             composeMountGroups: mountGroups,
-            renderedCompose: nonEmptyString(renderedCompose)
+            renderedCompose: nonEmptyString(renderedCompose),
+            applicationDiagnostics: nil
         )
+    }
+
+    static func applyingDiagnostics(
+        _ diagnostics: DokployApplicationDiagnostics?,
+        to detail: DokployServiceInspectorData
+    ) -> DokployServiceInspectorData {
+        DokployServiceInspectorData(
+            sourceType: detail.sourceType,
+            configurationType: detail.configurationType,
+            repository: detail.repository,
+            branch: detail.branch,
+            autoDeployEnabled: detail.autoDeployEnabled,
+            previewDeploymentsEnabled: detail.previewDeploymentsEnabled,
+            previewDeploymentCount: detail.previewDeploymentCount,
+            deploymentCount: detail.deploymentCount,
+            environmentVariableCount: detail.environmentVariableCount,
+            mountCount: detail.mountCount,
+            watchPathCount: detail.watchPathCount,
+            domainLabels: detail.domainLabels,
+            portLabels: detail.portLabels,
+            mountSummaries: detail.mountSummaries,
+            watchPaths: detail.watchPaths,
+            composeServiceNames: detail.composeServiceNames,
+            composeMountGroups: detail.composeMountGroups,
+            renderedCompose: detail.renderedCompose,
+            applicationDiagnostics: diagnostics
+        )
+    }
+
+    static func applicationDiagnostics(
+        from monitoringPayload: [String: Any],
+        traefikConfig: String?
+    ) -> DokployApplicationDiagnostics? {
+        let metrics = DokployMonitoringMetricKind.allCases.compactMap { kind -> DokployMonitoringMetricSnapshot? in
+            monitoringMetric(kind: kind, from: monitoringPayload[kind.rawValue])
+        }
+        let normalizedTraefik = nonEmptyString(traefikConfig)
+        let diagnostics = DokployApplicationDiagnostics(metrics: metrics, traefikConfig: normalizedTraefik)
+        return diagnostics.hasAnyDiagnostics ? diagnostics : nil
     }
 
     private static func nonEmptyString(_ value: Any?) -> String? {
@@ -962,6 +1086,114 @@ enum DokployServiceInspectorParser {
                 token.lowercased() == token ? token.capitalized : String(token)
             }
             .joined(separator: " ")
+    }
+
+    private static func monitoringMetric(
+        kind: DokployMonitoringMetricKind,
+        from value: Any?
+    ) -> DokployMonitoringMetricSnapshot? {
+        guard let values = array(value), !values.isEmpty else {
+            return nil
+        }
+
+        let latest = values.compactMap { dictionary($0) }.last
+        let timestamp = latest.flatMap { firstNonEmptyString($0["time"], $0["timestamp"]) }.flatMap(DokployDateParser.parse)
+        let payload = latest?["value"]
+
+        switch kind {
+        case .cpu:
+            guard let primaryValue = nonEmptyString(payload) else {
+                return nil
+            }
+            return DokployMonitoringMetricSnapshot(
+                kind: kind,
+                sampleCount: values.count,
+                lastTimestamp: timestamp,
+                primaryValue: primaryValue,
+                secondaryValue: nil
+            )
+
+        case .memory:
+            guard let dictionary = dictionary(payload) else {
+                return nil
+            }
+            let used = firstNonEmptyString(dictionary["used"], dictionary["usage"])
+            let total = firstNonEmptyString(dictionary["total"], dictionary["limit"])
+            guard let primaryValue = used ?? total else {
+                return nil
+            }
+            return DokployMonitoringMetricSnapshot(
+                kind: kind,
+                sampleCount: values.count,
+                lastTimestamp: timestamp,
+                primaryValue: primaryValue,
+                secondaryValue: total.map { "of \($0)" }
+            )
+
+        case .network:
+            guard let dictionary = dictionary(payload) else {
+                return nil
+            }
+            let input = firstNonEmptyString(dictionary["inputMb"], dictionary["input"], dictionary["rx"])
+            let output = firstNonEmptyString(dictionary["outputMb"], dictionary["output"], dictionary["tx"])
+            guard let primaryValue = input ?? output else {
+                return nil
+            }
+            let secondary = output.map { "out \($0)" }
+            let primary = input.map { "in \($0)" } ?? primaryValue
+            return DokployMonitoringMetricSnapshot(
+                kind: kind,
+                sampleCount: values.count,
+                lastTimestamp: timestamp,
+                primaryValue: primary,
+                secondaryValue: secondary
+            )
+
+        case .block:
+            guard let dictionary = dictionary(payload) else {
+                return nil
+            }
+            let read = firstNonEmptyString(dictionary["readMb"], dictionary["read"])
+            let write = firstNonEmptyString(dictionary["writeMb"], dictionary["write"])
+            guard let primaryValue = read ?? write else {
+                return nil
+            }
+            let secondary = write.map { "write \($0)" }
+            let primary = read.map { "read \($0)" } ?? primaryValue
+            return DokployMonitoringMetricSnapshot(
+                kind: kind,
+                sampleCount: values.count,
+                lastTimestamp: timestamp,
+                primaryValue: primary,
+                secondaryValue: secondary
+            )
+
+        case .disk:
+            if let payloadText = nonEmptyString(payload) {
+                return DokployMonitoringMetricSnapshot(
+                    kind: kind,
+                    sampleCount: values.count,
+                    lastTimestamp: timestamp,
+                    primaryValue: payloadText,
+                    secondaryValue: nil
+                )
+            }
+            if let dictionary = dictionary(payload) {
+                let used = firstNonEmptyString(dictionary["used"], dictionary["usage"])
+                let total = firstNonEmptyString(dictionary["total"], dictionary["size"])
+                guard let primaryValue = used ?? total else {
+                    return nil
+                }
+                return DokployMonitoringMetricSnapshot(
+                    kind: kind,
+                    sampleCount: values.count,
+                    lastTimestamp: timestamp,
+                    primaryValue: primaryValue,
+                    secondaryValue: total.map { "of \($0)" }
+                )
+            }
+            return nil
+        }
     }
 }
 
