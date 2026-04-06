@@ -42,6 +42,32 @@ private enum DashboardFilter: String, CaseIterable, Identifiable {
     var id: String { rawValue }
 }
 
+private enum DashboardMode: String, CaseIterable, Identifiable {
+    case services = "Services"
+    case activity = "Activity"
+
+    var id: String { rawValue }
+
+    var icon: String {
+        switch self {
+        case .services:
+            return "square.grid.2x2"
+        case .activity:
+            return "clock.arrow.circlepath"
+        }
+    }
+}
+
+private enum ActivityFilter: String, CaseIterable, Identifiable {
+    case all = "All"
+    case deploying = "Deploying"
+    case queued = "Queued"
+    case failed = "Failed"
+    case recent = "Recent"
+
+    var id: String { rawValue }
+}
+
 // MARK: - Main View
 
 struct MainMenuView: View {
@@ -56,8 +82,11 @@ struct MainMenuView: View {
     @State private var editorMode: InstanceEditorMode?
     @State private var selectedInstanceID: UUID?
     @State private var selectedEntryID: String?
+    @State private var selectedActivityID: String?
     @State private var searchText = ""
+    @State private var dashboardMode: DashboardMode = .services
     @State private var dashboardFilter: DashboardFilter = .all
+    @State private var activityFilter: ActivityFilter = .all
 
     init(
         store: MonitorStore,
@@ -314,6 +343,10 @@ struct MainMenuView: View {
                     dashboardStatCards
                         .padding(.horizontal, 24)
                         .padding(.bottom, 16)
+
+                    dashboardModePicker
+                        .padding(.horizontal, 24)
+                        .padding(.bottom, 12)
                 }
 
                 if store.instances.isEmpty {
@@ -325,56 +358,18 @@ struct MainMenuView: View {
                             .padding(.bottom, 12)
                     }
 
-                    dashboardFilterBar
-                        .padding(.horizontal, 24)
-                        .padding(.bottom, 12)
+                    if dashboardMode == .services {
+                        dashboardFilterBar
+                            .padding(.horizontal, 24)
+                            .padding(.bottom, 12)
 
-                    let entries = dashboardFilteredEntries
-                    if entries.isEmpty {
-                        noResultsState
+                        servicesDashboardContent
                     } else {
-                        HStack(alignment: .top, spacing: 0) {
-                            ScrollView {
-                                LazyVStack(spacing: 6) {
-                                    ForEach(entries) { entry in
-                                        DashboardEntryRow(
-                                            entry: entry,
-                                            isSelected: selectedDashboardEntry?.id == entry.id,
-                                            recentWindow: recentWindowInterval
-                                        ) {
-                                            selectedEntryID = entry.id
-                                        }
-                                    }
-                                }
-                                .padding(.horizontal, 24)
-                                .padding(.vertical, 12)
-                            }
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        activityFilterBar
+                            .padding(.horizontal, 24)
+                            .padding(.bottom, 12)
 
-                            Divider()
-                                .padding(.vertical, 12)
-
-                            if let selectedEntry = selectedDashboardEntry {
-                                ServiceDetailPanel(
-                                    entry: selectedEntry,
-                                    instance: store.instances.first { $0.id == selectedEntry.instanceID },
-                                    recentWindow: recentWindowInterval,
-                                    onClose: {
-                                        selectedEntryID = nil
-                                    }
-                                )
-                                .frame(width: 360)
-                                .padding(.trailing, 20)
-                                .padding(.vertical, 12)
-                                .id(selectedEntry.id)
-                            } else {
-                                inspectorEmptyState
-                                    .frame(width: 360)
-                                    .padding(.trailing, 20)
-                                    .padding(.vertical, 12)
-                            }
-                        }
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        activityDashboardContent
                     }
                 }
             }
@@ -414,7 +409,10 @@ struct MainMenuView: View {
                     Image(systemName: "magnifyingglass")
                         .foregroundStyle(.tertiary)
                         .font(.system(size: 12))
-                    TextField("Search services…", text: $searchText)
+                    TextField(
+                        dashboardMode == .services ? "Search services…" : "Search activity…",
+                        text: $searchText
+                    )
                         .textFieldStyle(.plain)
                         .font(.system(size: 13))
                     if !searchText.isEmpty {
@@ -505,6 +503,55 @@ struct MainMenuView: View {
         }
     }
 
+    private var dashboardModePicker: some View {
+        HStack(spacing: 0) {
+            ForEach(DashboardMode.allCases) { mode in
+                let isSelected = dashboardMode == mode
+                let count = mode == .services ? filteredEntries.count : filteredActivityItems.count
+
+                Button {
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        dashboardMode = mode
+                    }
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: mode.icon)
+                            .font(.system(size: 10, weight: .medium))
+
+                        Text(mode.rawValue)
+                            .font(.system(size: 11, weight: isSelected ? .semibold : .regular))
+
+                        Text("\(count)")
+                            .font(.system(size: 9, weight: .bold, design: .rounded))
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 1)
+                            .background(
+                                (isSelected ? Color.white.opacity(0.3) : Color.secondary.opacity(0.12)),
+                                in: Capsule()
+                            )
+                    }
+                    .foregroundStyle(isSelected ? .white : .secondary)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(
+                        isSelected
+                            ? AnyShapeStyle(Color.accentColor)
+                            : AnyShapeStyle(Color.clear),
+                        in: Capsule()
+                    )
+                }
+                .buttonStyle(.plain)
+            }
+
+            Spacer()
+        }
+        .padding(3)
+        .background {
+            Capsule()
+                .fill(Color.primary.opacity(0.04))
+        }
+    }
+
     private var dashboardFilterBar: some View {
         HStack(spacing: 0) {
             ForEach(DashboardFilter.allCases) { filter in
@@ -554,6 +601,163 @@ struct MainMenuView: View {
         .background {
             Capsule()
                 .fill(Color.primary.opacity(0.04))
+        }
+    }
+
+    private var activityFilterBar: some View {
+        HStack(spacing: 0) {
+            ForEach(ActivityFilter.allCases) { filter in
+                let isSelected = activityFilter == filter
+                let count = countFor(activityFilter: filter)
+
+                Button {
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        activityFilter = filter
+                    }
+                } label: {
+                    HStack(spacing: 5) {
+                        Text(filter.rawValue)
+                            .font(.system(size: 11, weight: isSelected ? .semibold : .regular))
+
+                        if count > 0 && filter != .all {
+                            Text("\(count)")
+                                .font(.system(size: 9, weight: .bold, design: .rounded))
+                                .padding(.horizontal, 5)
+                                .padding(.vertical, 1)
+                                .background(
+                                    (isSelected ? Color.white.opacity(0.3) : colorFor(activityFilter: filter).opacity(0.15)),
+                                    in: Capsule()
+                                )
+                        }
+                    }
+                    .foregroundStyle(isSelected ? .white : .secondary)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 6)
+                    .background(
+                        isSelected
+                            ? AnyShapeStyle(Color.accentColor)
+                            : AnyShapeStyle(Color.clear),
+                        in: Capsule()
+                    )
+                }
+                .buttonStyle(.plain)
+            }
+
+            Spacer()
+
+            Text("\(dashboardFilteredActivityItems.count) events")
+                .font(.system(size: 11))
+                .foregroundStyle(.tertiary)
+        }
+        .padding(3)
+        .background {
+            Capsule()
+                .fill(Color.primary.opacity(0.04))
+        }
+    }
+
+    @ViewBuilder
+    private var servicesDashboardContent: some View {
+        let entries = dashboardFilteredEntries
+        if entries.isEmpty {
+            noResultsState
+        } else {
+            HStack(alignment: .top, spacing: 0) {
+                ScrollView {
+                    LazyVStack(spacing: 6) {
+                        ForEach(entries) { entry in
+                            DashboardEntryRow(
+                                entry: entry,
+                                isSelected: selectedDashboardEntry?.id == entry.id,
+                                recentWindow: recentWindowInterval
+                            ) {
+                                selectedEntryID = entry.id
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 24)
+                    .padding(.vertical, 12)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+                Divider()
+                    .padding(.vertical, 12)
+
+                if let selectedEntry = selectedDashboardEntry {
+                    ServiceDetailPanel(
+                        entry: selectedEntry,
+                        instance: store.instances.first { $0.id == selectedEntry.instanceID },
+                        recentWindow: recentWindowInterval,
+                        onClose: {
+                            selectedEntryID = nil
+                        }
+                    )
+                    .frame(width: 360)
+                    .padding(.trailing, 20)
+                    .padding(.vertical, 12)
+                    .id(selectedEntry.id)
+                } else {
+                    inspectorEmptyState
+                        .frame(width: 360)
+                        .padding(.trailing, 20)
+                        .padding(.vertical, 12)
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+
+    @ViewBuilder
+    private var activityDashboardContent: some View {
+        let items = dashboardFilteredActivityItems
+        if items.isEmpty {
+            noResultsState
+        } else {
+            HStack(alignment: .top, spacing: 0) {
+                ScrollView {
+                    LazyVStack(spacing: 6) {
+                        ForEach(items) { item in
+                            ActivityFeedRow(
+                                item: item,
+                                isSelected: selectedDashboardActivity?.id == item.id
+                            ) {
+                                selectedActivityID = item.id
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 24)
+                    .padding(.vertical, 12)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+                Divider()
+                    .padding(.vertical, 12)
+
+                if let activity = selectedDashboardActivity {
+                    ActivityDetailPanel(
+                        item: activity,
+                        relatedEntry: store.entry(for: activity),
+                        recentWindow: recentWindowInterval,
+                        onClose: {
+                            selectedActivityID = nil
+                        },
+                        onInspectService: { relatedEntry in
+                            dashboardMode = .services
+                            selectedEntryID = relatedEntry.id
+                        }
+                    )
+                    .frame(width: 360)
+                    .padding(.trailing, 20)
+                    .padding(.vertical, 12)
+                    .id(activity.id)
+                } else {
+                    activityEmptyState
+                        .frame(width: 360)
+                        .padding(.trailing, 20)
+                        .padding(.vertical, 12)
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 
@@ -845,10 +1049,14 @@ struct MainMenuView: View {
             }
 
             VStack(spacing: 4) {
-                Text("No matching services")
+                Text(dashboardMode == .services ? "No matching services" : "No matching activity")
                     .font(.headline)
 
-                Text("Try another search term, filter, or instance.")
+                Text(
+                    dashboardMode == .services
+                        ? "Try another search term, filter, or instance."
+                        : "Try another search term, filter, or instance."
+                )
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
@@ -889,8 +1097,42 @@ struct MainMenuView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
+    private var activityEmptyState: some View {
+        VStack(spacing: 14) {
+            Spacer()
+
+            ZStack {
+                Circle()
+                    .fill(Color.accentColor.opacity(0.04))
+                    .frame(width: 56, height: 56)
+
+                Image(systemName: "clock.arrow.circlepath")
+                    .font(.system(size: 22, weight: .thin))
+                    .foregroundStyle(.quaternary)
+            }
+
+            VStack(spacing: 4) {
+                Text("Select an event")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.secondary)
+
+                Text("Click any deployment event to inspect\nits details and related service.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.tertiary)
+                    .multilineTextAlignment(.center)
+            }
+
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
     private var filteredEntries: [MonitoredApplication] {
         store.entries(for: selectedInstanceID, searchText: searchText)
+    }
+
+    private var filteredActivityItems: [DokployActivityItem] {
+        store.activityItems(for: selectedInstanceID, searchText: searchText)
     }
 
     private var dashboardFilteredEntries: [MonitoredApplication] {
@@ -909,9 +1151,30 @@ struct MainMenuView: View {
         }
     }
 
+    private var dashboardFilteredActivityItems: [DokployActivityItem] {
+        let base = filteredActivityItems
+        switch activityFilter {
+        case .all:
+            return base
+        case .deploying:
+            return base.filter { $0.state == .deploying }
+        case .queued:
+            return base.filter { $0.state == .queued }
+        case .failed:
+            return base.filter(\.isFailing)
+        case .recent:
+            return base.filter(\.isRecent)
+        }
+    }
+
     private var selectedDashboardEntry: MonitoredApplication? {
         guard let selectedEntryID else { return nil }
         return dashboardFilteredEntries.first { $0.id == selectedEntryID }
+    }
+
+    private var selectedDashboardActivity: DokployActivityItem? {
+        guard let selectedActivityID else { return nil }
+        return dashboardFilteredActivityItems.first { $0.id == selectedActivityID }
     }
 
     private func countFor(filter: DashboardFilter) -> Int {
@@ -925,12 +1188,33 @@ struct MainMenuView: View {
         }
     }
 
+    private func countFor(activityFilter: ActivityFilter) -> Int {
+        let base = filteredActivityItems
+        switch activityFilter {
+        case .all: return base.count
+        case .deploying: return base.filter { $0.state == .deploying }.count
+        case .queued: return base.filter { $0.state == .queued }.count
+        case .failed: return base.filter(\.isFailing).count
+        case .recent: return base.filter(\.isRecent).count
+        }
+    }
+
     private func colorFor(filter: DashboardFilter) -> Color {
         switch filter {
         case .all: return .accentColor
         case .deploying: return .blue
         case .recent: return .green
         case .failed: return .red
+        }
+    }
+
+    private func colorFor(activityFilter: ActivityFilter) -> Color {
+        switch activityFilter {
+        case .all: return .accentColor
+        case .deploying: return .blue
+        case .queued: return .orange
+        case .failed: return .red
+        case .recent: return .green
         }
     }
 
@@ -1269,6 +1553,404 @@ private struct DashboardEntryRow: View {
             return Color.accentColor.opacity(0.26)
         }
         return isHovered ? Color.primary.opacity(0.1) : Color.primary.opacity(0.05)
+    }
+}
+
+private struct ActivityFeedRow: View {
+    let item: DokployActivityItem
+    let isSelected: Bool
+    let action: () -> Void
+
+    @State private var isHovered = false
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 60)) { context in
+            HStack(spacing: 0) {
+                RoundedRectangle(cornerRadius: 2)
+                    .fill(accentColor)
+                    .frame(width: 4)
+                    .padding(.vertical, 8)
+
+                HStack(spacing: 14) {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(accentColor.opacity(0.1))
+                            .frame(width: 36, height: 36)
+
+                        Image(systemName: iconName)
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundStyle(accentColor)
+                    }
+
+                    VStack(alignment: .leading, spacing: 3) {
+                        HStack(spacing: 8) {
+                            Text(item.serviceName)
+                                .font(.system(size: 14, weight: .semibold))
+
+                            ActivityStateBadge(item: item)
+                        }
+
+                        Text(item.title)
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(2)
+
+                        Text(item.subtitle)
+                            .font(.system(size: 11))
+                            .foregroundStyle(.tertiary)
+                            .lineLimit(1)
+                    }
+
+                    Spacer(minLength: 12)
+
+                    VStack(alignment: .trailing, spacing: 3) {
+                        Text(DokployRelativeTime.shortString(since: item.activityDate, now: context.date))
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(.secondary)
+
+                        if let durationLabel = item.durationLabel {
+                            Text(durationLabel)
+                                .font(.system(size: 10))
+                                .foregroundStyle(.tertiary)
+                        }
+                    }
+
+                    Image(systemName: isSelected ? "chevron.right.circle.fill" : "chevron.right")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(isSelected ? Color.accentColor : Color.secondary.opacity(0.3))
+                }
+                .padding(.leading, 12)
+                .padding(.trailing, 16)
+                .padding(.vertical, 10)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background {
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(backgroundColor)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 10)
+                            .strokeBorder(borderColor, lineWidth: 0.5)
+                    )
+            }
+            .contentShape(RoundedRectangle(cornerRadius: 10))
+            .onTapGesture(perform: action)
+            .onHover { hovering in
+                withAnimation(.easeInOut(duration: 0.12)) {
+                    isHovered = hovering
+                }
+            }
+        }
+    }
+
+    private var iconName: String {
+        switch item.state {
+        case .queued:
+            return "clock.badge.exclamationmark"
+        case .deploying:
+            return "arrow.triangle.2.circlepath"
+        case .failed:
+            return "exclamationmark.triangle.fill"
+        case .recent:
+            return "checkmark.circle.fill"
+        case .cancelled:
+            return "xmark.circle.fill"
+        case .steady:
+            return item.serviceType?.symbolName ?? "clock"
+        }
+    }
+
+    private var accentColor: Color {
+        switch item.state {
+        case .queued:
+            return .orange
+        case .deploying:
+            return .blue
+        case .failed:
+            return .red
+        case .recent:
+            return .green
+        case .cancelled:
+            return .orange
+        case .steady:
+            return .secondary.opacity(0.5)
+        }
+    }
+
+    private var backgroundColor: Color {
+        if isSelected {
+            return Color.accentColor.opacity(0.08)
+        }
+        return isHovered ? Color.primary.opacity(0.05) : Color.primary.opacity(0.02)
+    }
+
+    private var borderColor: Color {
+        if isSelected {
+            return Color.accentColor.opacity(0.26)
+        }
+        return isHovered ? Color.primary.opacity(0.1) : Color.primary.opacity(0.05)
+    }
+}
+
+private struct ActivityStateBadge: View {
+    let item: DokployActivityItem
+
+    var body: some View {
+        Text(item.statusLabel)
+            .font(.system(size: 10, weight: .semibold))
+            .foregroundStyle(color)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
+            .background(color.opacity(0.12), in: Capsule())
+    }
+
+    private var color: Color {
+        switch item.state {
+        case .queued:
+            return .orange
+        case .deploying:
+            return .blue
+        case .failed:
+            return .red
+        case .recent:
+            return .green
+        case .cancelled:
+            return .orange
+        case .steady:
+            return .secondary
+        }
+    }
+}
+
+private struct ActivityDetailPanel: View {
+    let item: DokployActivityItem
+    let relatedEntry: MonitoredApplication?
+    let recentWindow: TimeInterval
+    let onClose: () -> Void
+    let onInspectService: (MonitoredApplication) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Text("Activity")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.tertiary)
+                    .textCase(.uppercase)
+                    .tracking(0.3)
+
+                Spacer()
+
+                Button {
+                    onClose()
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundStyle(.tertiary)
+                        .frame(width: 20, height: 20)
+                        .background(Color.primary.opacity(0.06), in: Circle())
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, 18)
+            .padding(.top, 14)
+            .padding(.bottom, 8)
+
+            Divider()
+                .padding(.horizontal, 14)
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    activityHeader
+                    activityFacts
+
+                    if let description = item.description, !description.isEmpty {
+                        activityCard(title: "Description", icon: "text.alignleft") {
+                            Text(description)
+                                .font(.system(size: 11))
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .textSelection(.enabled)
+                        }
+                    }
+
+                    if let errorMessage = item.errorMessage, !errorMessage.isEmpty {
+                        activityCard(title: "Error", icon: "exclamationmark.triangle.fill") {
+                            Text(errorMessage)
+                                .font(.system(size: 11))
+                                .foregroundStyle(.red.opacity(0.85))
+                                .fixedSize(horizontal: false, vertical: true)
+                                .textSelection(.enabled)
+                        }
+                    }
+
+                    activityCard(title: "Related Service", icon: item.serviceType?.symbolName ?? "square.grid.2x2") {
+                        VStack(alignment: .leading, spacing: 8) {
+                            if let relatedEntry {
+                                DetailFactCard(
+                                    icon: relatedEntry.serviceType.symbolName,
+                                    label: "Service",
+                                    value: relatedEntry.name
+                                )
+
+                                Button {
+                                    onInspectService(relatedEntry)
+                                } label: {
+                                    Label("Inspect Service", systemImage: "sidebar.right")
+                                        .font(.system(size: 11, weight: .medium))
+                                }
+                                .buttonStyle(.bordered)
+                            } else {
+                                Text("This activity event could not be matched to a currently visible service entry.")
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(.secondary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                        }
+                    }
+                }
+                .padding(18)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(
+            RoundedRectangle(cornerRadius: 14)
+                .fill(Color.primary.opacity(0.02))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 14)
+                        .strokeBorder(Color.primary.opacity(0.06), lineWidth: 0.5)
+                )
+        )
+    }
+
+    private var activityHeader: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .top, spacing: 12) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(
+                            LinearGradient(
+                                colors: [accentColor.opacity(0.2), accentColor.opacity(0.08)],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                        .frame(width: 46, height: 46)
+
+                    Image(systemName: iconName)
+                        .font(.system(size: 20, weight: .medium))
+                        .foregroundStyle(accentColor)
+                }
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(item.serviceName)
+                        .font(.system(size: 16, weight: .bold))
+                        .lineLimit(2)
+
+                    HStack(spacing: 6) {
+                        ActivityStateBadge(item: item)
+
+                        Text(item.typeLabel)
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Color.primary.opacity(0.05), in: Capsule())
+                    }
+                }
+
+                Spacer(minLength: 0)
+            }
+
+            Text(item.title)
+                .font(.system(size: 13, weight: .semibold))
+
+            if let appName = item.appName, !appName.isEmpty {
+                Text(appName)
+                    .font(.system(size: 11, weight: .medium, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+            }
+        }
+    }
+
+    private var activityFacts: some View {
+        LazyVGrid(
+            columns: [
+                GridItem(.flexible(), spacing: 8),
+                GridItem(.flexible(), spacing: 8)
+            ],
+            alignment: .leading,
+            spacing: 8
+        ) {
+            DetailFactCard(icon: "server.rack", label: "Instance", value: item.instanceName)
+            DetailFactCard(icon: "circle.dotted", label: "Status", value: item.statusLabel, valueColor: accentColor)
+            DetailFactCard(icon: "clock", label: "When", value: DokployRelativeTime.shortString(since: item.activityDate, now: .now))
+            DetailFactCard(icon: "timer", label: "Duration", value: item.durationLabel ?? "—")
+            if let projectName = item.projectName {
+                DetailFactCard(icon: "folder", label: "Project", value: projectName)
+            }
+            if let environmentName = item.environmentName {
+                DetailFactCard(icon: "leaf", label: "Environment", value: environmentName)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func activityCard<Content: View>(title: String, icon: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 6) {
+                Image(systemName: icon)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.secondary)
+                Text(title)
+                    .font(.system(size: 11, weight: .semibold))
+            }
+
+            content()
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 10)
+                .fill(Color.primary.opacity(0.025))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10)
+                        .strokeBorder(Color.primary.opacity(0.05), lineWidth: 0.5)
+                )
+        )
+    }
+
+    private var accentColor: Color {
+        switch item.state {
+        case .queued:
+            return .orange
+        case .deploying:
+            return .blue
+        case .failed:
+            return .red
+        case .recent:
+            return .green
+        case .cancelled:
+            return .orange
+        case .steady:
+            return .secondary
+        }
+    }
+
+    private var iconName: String {
+        switch item.state {
+        case .queued:
+            return "clock.badge.exclamationmark"
+        case .deploying:
+            return "arrow.triangle.2.circlepath"
+        case .failed:
+            return "exclamationmark.triangle.fill"
+        case .recent:
+            return "checkmark.circle.fill"
+        case .cancelled:
+            return "xmark.circle.fill"
+        case .steady:
+            return item.serviceType?.symbolName ?? "clock"
+        }
     }
 }
 

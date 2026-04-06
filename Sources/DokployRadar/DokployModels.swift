@@ -397,6 +397,275 @@ struct DokployDeploymentRecord: Decodable, Equatable, Identifiable {
     }
 }
 
+struct DokployQueuedDeployment: Equatable, Identifiable {
+    let id: String
+    let title: String
+    let description: String?
+    let serviceID: String?
+    let serviceName: String?
+    let appName: String?
+    let serviceType: DokployServiceType?
+    let createdAt: String?
+
+    var createdDate: Date? {
+        createdAt.flatMap(DokployDateParser.parse)
+    }
+}
+
+enum DokployActivityState: Int, Comparable {
+    case queued = 0
+    case deploying = 1
+    case failed = 2
+    case recent = 3
+    case cancelled = 4
+    case steady = 5
+
+    static func < (lhs: DokployActivityState, rhs: DokployActivityState) -> Bool {
+        lhs.rawValue < rhs.rawValue
+    }
+
+    var displayName: String {
+        switch self {
+        case .queued:
+            return "Queued"
+        case .deploying:
+            return "Deploying"
+        case .failed:
+            return "Failed"
+        case .recent:
+            return "Completed"
+        case .cancelled:
+            return "Cancelled"
+        case .steady:
+            return "Older"
+        }
+    }
+}
+
+struct DokployActivityItem: Identifiable, Equatable {
+    let id: String
+    let instanceID: UUID
+    let instanceName: String
+    let instanceHost: String
+    let serviceID: String?
+    let serviceName: String
+    let appName: String?
+    let serviceType: DokployServiceType?
+    let projectName: String?
+    let environmentName: String?
+    let relatedEntryID: String?
+    let title: String
+    let description: String?
+    let errorMessage: String?
+    let state: DokployActivityState
+    let createdAt: Date?
+    let startedAt: Date?
+    let finishedAt: Date?
+
+    var activityDate: Date {
+        finishedAt ?? startedAt ?? createdAt ?? .distantPast
+    }
+
+    var typeLabel: String {
+        serviceType?.displayName ?? "Service"
+    }
+
+    var isActive: Bool {
+        state == .queued || state == .deploying
+    }
+
+    var isFailing: Bool {
+        state == .failed
+    }
+
+    var isRecent: Bool {
+        state == .recent
+    }
+
+    var statusLabel: String {
+        state.displayName
+    }
+
+    var subtitle: String {
+        var parts: [String] = []
+        if let serviceType {
+            parts.append(serviceType.displayName)
+        }
+        parts.append(instanceName)
+        if let projectName {
+            parts.append(projectName)
+        }
+        return parts.joined(separator: " · ")
+    }
+
+    var durationLabel: String? {
+        guard let startedAt else {
+            return nil
+        }
+
+        let end: Date
+        if let finishedAt {
+            end = finishedAt
+        } else if state == .deploying {
+            end = Date()
+        } else {
+            return nil
+        }
+
+        let seconds = Int(end.timeIntervalSince(startedAt))
+        if seconds < 60 {
+            return "\(seconds)s"
+        } else if seconds < 3600 {
+            let minutes = seconds / 60
+            let remainder = seconds % 60
+            return remainder > 0 ? "\(minutes)m \(remainder)s" : "\(minutes)m"
+        } else {
+            let hours = seconds / 3600
+            let minutes = (seconds % 3600) / 60
+            return minutes > 0 ? "\(hours)h \(minutes)m" : "\(hours)h"
+        }
+    }
+
+    static func from(
+        deployment: DokployCentralizedDeployment,
+        snapshot: InstanceSnapshot,
+        relatedEntry: MonitoredApplication?,
+        recentWindow: TimeInterval,
+        now: Date
+    ) -> DokployActivityItem {
+        let serviceType: DokployServiceType?
+        let serviceID: String?
+        let serviceName: String
+        let appName: String?
+        let projectName: String?
+        let environmentName: String?
+
+        if let application = deployment.application {
+            serviceType = .application
+            serviceID = application.applicationId
+            serviceName = application.name
+            appName = application.appName
+            projectName = relatedEntry?.projectName ?? application.environment.project.name
+            environmentName = relatedEntry?.environmentName ?? application.environment.name
+        } else if let compose = deployment.compose {
+            serviceType = .compose
+            serviceID = compose.composeId
+            serviceName = compose.name
+            appName = compose.appName
+            projectName = relatedEntry?.projectName ?? compose.environment.project.name
+            environmentName = relatedEntry?.environmentName ?? compose.environment.name
+        } else {
+            serviceType = relatedEntry?.serviceType
+            serviceID = relatedEntry?.applicationId
+            serviceName = relatedEntry?.name ?? "Unknown Service"
+            appName = relatedEntry?.appName
+            projectName = relatedEntry?.projectName
+            environmentName = relatedEntry?.environmentName
+        }
+
+        let createdAt = DokployDateParser.parse(deployment.createdAt)
+        let startedAt = deployment.startedAt.flatMap(DokployDateParser.parse)
+        let finishedAt = deployment.finishedAt.flatMap(DokployDateParser.parse)
+
+        let state: DokployActivityState
+        switch deployment.status {
+        case .running:
+            state = .deploying
+        case .error:
+            state = .failed
+        case .cancelled:
+            state = .cancelled
+        case .done:
+            let referenceDate = finishedAt ?? startedAt ?? createdAt ?? .distantPast
+            state = referenceDate >= now.addingTimeInterval(-recentWindow) ? .recent : .steady
+        case .none:
+            state = .steady
+        }
+
+        return DokployActivityItem(
+            id: "deployment:\(snapshot.instance.id.uuidString):\(deployment.deploymentId)",
+            instanceID: snapshot.instance.id,
+            instanceName: snapshot.instance.name,
+            instanceHost: snapshot.instance.hostLabel,
+            serviceID: serviceID,
+            serviceName: serviceName,
+            appName: appName,
+            serviceType: serviceType,
+            projectName: projectName,
+            environmentName: environmentName,
+            relatedEntryID: relatedEntry?.id,
+            title: deployment.title,
+            description: deployment.description,
+            errorMessage: deployment.errorMessage,
+            state: state,
+            createdAt: createdAt,
+            startedAt: startedAt,
+            finishedAt: finishedAt
+        )
+    }
+
+    static func from(
+        queuedDeployment: DokployQueuedDeployment,
+        snapshot: InstanceSnapshot,
+        relatedEntry: MonitoredApplication?
+    ) -> DokployActivityItem {
+        let createdAt = queuedDeployment.createdDate
+        return DokployActivityItem(
+            id: "queue:\(snapshot.instance.id.uuidString):\(queuedDeployment.id)",
+            instanceID: snapshot.instance.id,
+            instanceName: snapshot.instance.name,
+            instanceHost: snapshot.instance.hostLabel,
+            serviceID: queuedDeployment.serviceID ?? relatedEntry?.applicationId,
+            serviceName: queuedDeployment.serviceName ?? relatedEntry?.name ?? "Queued Service",
+            appName: queuedDeployment.appName ?? relatedEntry?.appName,
+            serviceType: queuedDeployment.serviceType ?? relatedEntry?.serviceType,
+            projectName: relatedEntry?.projectName,
+            environmentName: relatedEntry?.environmentName,
+            relatedEntryID: relatedEntry?.id,
+            title: queuedDeployment.title,
+            description: queuedDeployment.description,
+            errorMessage: nil,
+            state: .queued,
+            createdAt: createdAt,
+            startedAt: nil,
+            finishedAt: nil
+        )
+    }
+}
+
+enum DokployActivitySorter {
+    static func sort(_ items: [DokployActivityItem]) -> [DokployActivityItem] {
+        items.sorted { lhs, rhs in
+            let leftPriority = priority(for: lhs)
+            let rightPriority = priority(for: rhs)
+            if leftPriority != rightPriority {
+                return leftPriority < rightPriority
+            }
+
+            if lhs.activityDate != rhs.activityDate {
+                return lhs.activityDate > rhs.activityDate
+            }
+
+            if lhs.instanceName != rhs.instanceName {
+                return lhs.instanceName.localizedCaseInsensitiveCompare(rhs.instanceName) == .orderedAscending
+            }
+
+            return lhs.serviceName.localizedCaseInsensitiveCompare(rhs.serviceName) == .orderedAscending
+        }
+    }
+
+    private static func priority(for item: DokployActivityItem) -> Int {
+        switch item.state {
+        case .deploying:
+            return 0
+        case .queued:
+            return 1
+        case .recent, .failed, .cancelled, .steady:
+            return 2
+        }
+    }
+}
+
 struct DokployMountSummary: Equatable, Identifiable {
     let id: String
     let title: String
@@ -699,8 +968,26 @@ enum DokployServiceInspectorParser {
 struct InstanceSnapshot: Equatable {
     let instance: DokployInstance
     let entries: [MonitoredApplication]
+    let deployments: [DokployCentralizedDeployment]
+    let queuedDeployments: [DokployQueuedDeployment]
     let refreshedAt: Date
     let errorMessage: String?
+
+    init(
+        instance: DokployInstance,
+        entries: [MonitoredApplication],
+        deployments: [DokployCentralizedDeployment] = [],
+        queuedDeployments: [DokployQueuedDeployment] = [],
+        refreshedAt: Date,
+        errorMessage: String?
+    ) {
+        self.instance = instance
+        self.entries = entries
+        self.deployments = deployments
+        self.queuedDeployments = queuedDeployments
+        self.refreshedAt = refreshedAt
+        self.errorMessage = errorMessage
+    }
 
     var deployingCount: Int {
         entries.filter(\.isDeploying).count

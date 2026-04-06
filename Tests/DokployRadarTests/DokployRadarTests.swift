@@ -65,6 +65,98 @@ final class DokployRadarTests: XCTestCase {
         XCTAssertEqual(ordered.map(\.id), ["1", "2", "3"])
     }
 
+    func testActivitySorterPrefersActiveItemsThenNewestHistory() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let instanceID = UUID()
+
+        let queued = DokployActivityItem(
+            id: "queued",
+            instanceID: instanceID,
+            instanceName: "Alpha",
+            instanceHost: "alpha.example.com",
+            serviceID: "svc-1",
+            serviceName: "API",
+            appName: nil,
+            serviceType: .application,
+            projectName: "Core",
+            environmentName: "Prod",
+            relatedEntryID: "entry-1",
+            title: "Queued deploy",
+            description: nil,
+            errorMessage: nil,
+            state: .queued,
+            createdAt: now.addingTimeInterval(-60),
+            startedAt: nil,
+            finishedAt: nil
+        )
+
+        let deploying = DokployActivityItem(
+            id: "deploying",
+            instanceID: instanceID,
+            instanceName: "Alpha",
+            instanceHost: "alpha.example.com",
+            serviceID: "svc-2",
+            serviceName: "Web",
+            appName: nil,
+            serviceType: .application,
+            projectName: "Core",
+            environmentName: "Prod",
+            relatedEntryID: "entry-2",
+            title: "Deploy web",
+            description: nil,
+            errorMessage: nil,
+            state: .deploying,
+            createdAt: now.addingTimeInterval(-180),
+            startedAt: now.addingTimeInterval(-120),
+            finishedAt: nil
+        )
+
+        let failed = DokployActivityItem(
+            id: "failed",
+            instanceID: instanceID,
+            instanceName: "Alpha",
+            instanceHost: "alpha.example.com",
+            serviceID: "svc-3",
+            serviceName: "Worker",
+            appName: nil,
+            serviceType: .application,
+            projectName: "Core",
+            environmentName: "Prod",
+            relatedEntryID: "entry-3",
+            title: "Deploy worker",
+            description: nil,
+            errorMessage: "Failed build",
+            state: .failed,
+            createdAt: now.addingTimeInterval(-320),
+            startedAt: now.addingTimeInterval(-300),
+            finishedAt: now.addingTimeInterval(-240)
+        )
+
+        let recent = DokployActivityItem(
+            id: "recent",
+            instanceID: instanceID,
+            instanceName: "Alpha",
+            instanceHost: "alpha.example.com",
+            serviceID: "svc-4",
+            serviceName: "Jobs",
+            appName: nil,
+            serviceType: .application,
+            projectName: "Core",
+            environmentName: "Prod",
+            relatedEntryID: "entry-4",
+            title: "Deploy jobs",
+            description: nil,
+            errorMessage: nil,
+            state: .recent,
+            createdAt: now.addingTimeInterval(-500),
+            startedAt: now.addingTimeInterval(-420),
+            finishedAt: now.addingTimeInterval(-120)
+        )
+
+        let ordered = DokployActivitySorter.sort([recent, failed, queued, deploying])
+        XCTAssertEqual(ordered.map(\.id), ["deploying", "queued", "recent", "failed"])
+    }
+
     @MainActor
     func testStorePersistsInstancesToDisk() throws {
         let fileManager = FileManager.default
@@ -127,6 +219,44 @@ final class DokployRadarTests: XCTestCase {
         XCTAssertTrue(store.instanceIssues.isEmpty)
         XCTAssertEqual(store.snapshots.count, 1)
         XCTAssertNil(store.snapshots.first?.errorMessage)
+    }
+
+    @MainActor
+    func testStoreBuildsActivityItemsAndResolvesRelatedEntries() async throws {
+        let fileManager = FileManager.default
+        let rootURL = fileManager.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let storageURL = rootURL.appendingPathComponent("instances.json", isDirectory: false)
+        let referenceDate = Date(timeIntervalSince1970: 1_800_000_000)
+
+        defer {
+            try? fileManager.removeItem(at: rootURL)
+        }
+
+        let store = MonitorStore(
+            fileManager: fileManager,
+            storageURL: storageURL,
+            snapshotFetcher: { instance in
+                Self.makeActivitySnapshot(for: instance, at: referenceDate)
+            }
+        )
+
+        store.saveInstance(
+            name: "Alpha",
+            baseURLString: "https://alpha.example.com",
+            apiToken: "token-alpha",
+            editing: nil,
+            refreshAfterSave: false
+        )
+
+        await store.refresh()
+
+        XCTAssertEqual(store.activityItems.count, 2)
+        XCTAssertEqual(store.activityItems.map(\.state), [.queued, .recent])
+        XCTAssertEqual(store.activityItems(for: nil, searchText: "queue").map(\.id), ["queue:\(try XCTUnwrap(store.instances.first).id.uuidString):queue-1"])
+
+        for activity in store.activityItems {
+            XCTAssertEqual(store.entry(for: activity)?.name, "API")
+        }
     }
 
     @MainActor
@@ -515,6 +645,65 @@ final class DokployRadarTests: XCTestCase {
         return InstanceSnapshot(
             instance: instance,
             entries: [entry],
+            refreshedAt: date,
+            errorMessage: nil
+        )
+    }
+
+    private static func makeActivitySnapshot(for instance: DokployInstance, at date: Date) -> InstanceSnapshot {
+        let environment = DokployCentralizedEnvironment(
+            environmentId: "env-1",
+            name: "Prod",
+            project: DokployCentralizedProject(projectId: "project-1", name: "Core")
+        )
+        let application = DokployCentralizedApplication(
+            applicationId: "app-activity",
+            name: "API",
+            appName: "api",
+            environment: environment
+        )
+        let deployment = DokployCentralizedDeployment(
+            deploymentId: "dep-activity",
+            title: "Deploy API",
+            description: "main@abc123",
+            status: .done,
+            createdAt: isoString(for: date.addingTimeInterval(-600)),
+            startedAt: isoString(for: date.addingTimeInterval(-540)),
+            finishedAt: isoString(for: date.addingTimeInterval(-480)),
+            errorMessage: nil,
+            application: application,
+            compose: nil
+        )
+        let entry = MonitoredApplication(
+            id: "entry-\(instance.id.uuidString)",
+            instanceID: instance.id,
+            instanceName: instance.name,
+            instanceHost: instance.hostLabel,
+            projectName: "Core",
+            environmentName: "Prod",
+            applicationId: "app-activity",
+            name: "API",
+            appName: "api",
+            applicationStatus: .done,
+            serviceType: .application,
+            latestDeployment: deployment
+        )
+        let queued = DokployQueuedDeployment(
+            id: "queue-1",
+            title: "Queued deployment",
+            description: "Waiting for capacity",
+            serviceID: "app-activity",
+            serviceName: "API",
+            appName: "api",
+            serviceType: .application,
+            createdAt: isoString(for: date.addingTimeInterval(-60))
+        )
+
+        return InstanceSnapshot(
+            instance: instance,
+            entries: [entry],
+            deployments: [deployment],
+            queuedDeployments: [queued],
             refreshedAt: date,
             errorMessage: nil
         )

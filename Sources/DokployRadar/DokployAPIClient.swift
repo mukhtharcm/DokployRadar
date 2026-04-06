@@ -19,16 +19,21 @@ struct DokployAPIClient {
     func fetchSnapshot(now: Date = .now) async throws -> InstanceSnapshot {
         async let projects: [DokployProject] = requestInventory()
         async let deployments: [DokployCentralizedDeployment] = request(path: "/deployment.allCentralized")
+        async let queuedDeployments: [DokployQueuedDeployment] = fetchQueuedDeployments()
 
-        let snapshotEntries = try buildEntries(
-            projects: await projects,
-            deployments: await deployments,
+        let projectList = try await projects
+        let centralizedDeployments = try await deployments
+        let snapshotEntries = buildEntries(
+            projects: projectList,
+            deployments: centralizedDeployments,
             now: now
         )
 
         return InstanceSnapshot(
             instance: instance,
             entries: snapshotEntries,
+            deployments: centralizedDeployments,
+            queuedDeployments: try await queuedDeployments,
             refreshedAt: now,
             errorMessage: nil
         )
@@ -39,9 +44,9 @@ struct DokployAPIClient {
         async let deployments: [DokployCentralizedDeployment] = request(path: "/deployment.allCentralized")
 
         let projectList = try await projects
-        let entries = try buildEntries(
+        let entries = buildEntries(
             projects: projectList,
-            deployments: await deployments,
+            deployments: try await deployments,
             now: now
         )
 
@@ -244,6 +249,80 @@ struct DokployAPIClient {
                 renderedCompose: nil
             )
         }
+    }
+
+    private func fetchQueuedDeployments() async throws -> [DokployQueuedDeployment] {
+        let payload = try await requestJSONArray(path: "/deployment.queueList")
+        return payload.enumerated().compactMap { index, item in
+            parseQueuedDeployment(from: item, fallbackIndex: index)
+        }
+    }
+
+    private func parseQueuedDeployment(from value: Any, fallbackIndex: Int) -> DokployQueuedDeployment? {
+        guard let payload = value as? [String: Any] else {
+            return nil
+        }
+
+        let application = payload["application"] as? [String: Any]
+        let compose = payload["compose"] as? [String: Any]
+        let explicitType = Self.firstNonEmptyString(payload["type"], payload["serviceType"])
+
+        let serviceType: DokployServiceType?
+        if compose != nil || explicitType == "compose" {
+            serviceType = .compose
+        } else if application != nil || explicitType == "application" {
+            serviceType = .application
+        } else {
+            serviceType = nil
+        }
+
+        let serviceID = Self.firstNonEmptyString(
+            compose?["composeId"],
+            payload["composeId"],
+            application?["applicationId"],
+            payload["applicationId"],
+            payload["serviceId"],
+            payload["id"]
+        )
+
+        let serviceName = Self.firstNonEmptyString(
+            compose?["name"],
+            application?["name"],
+            payload["serviceName"],
+            payload["applicationName"],
+            payload["composeName"],
+            payload["name"]
+        )
+
+        let appName = Self.firstNonEmptyString(
+            compose?["appName"],
+            application?["appName"],
+            payload["appName"]
+        )
+
+        let title = Self.firstNonEmptyString(
+            payload["title"],
+            payload["jobName"],
+            payload["name"]
+        ) ?? "Queued deployment"
+
+        let identifier = Self.firstNonEmptyString(
+            payload["queueId"],
+            payload["jobId"],
+            payload["deploymentId"],
+            payload["id"]
+        ) ?? "\(fallbackIndex)"
+
+        return DokployQueuedDeployment(
+            id: identifier,
+            title: title,
+            description: Self.firstNonEmptyString(payload["description"]),
+            serviceID: serviceID,
+            serviceName: serviceName,
+            appName: appName,
+            serviceType: serviceType,
+            createdAt: Self.firstNonEmptyString(payload["createdAt"], payload["queuedAt"])
+        )
     }
 
     private func fetchComposeMountGroups(

@@ -54,6 +54,37 @@ final class MonitorStore: ObservableObject {
         )
     }
 
+    var activityItems: [DokployActivityItem] {
+        let now = Date()
+        let recentWindow = preferences.recentWindowInterval
+        let entryLookup = Dictionary(uniqueKeysWithValues: allEntries.map { (activityLookupKey(for: $0), $0) })
+
+        let items = snapshots.flatMap { snapshot -> [DokployActivityItem] in
+            let deploymentItems = snapshot.deployments.map { deployment in
+                DokployActivityItem.from(
+                    deployment: deployment,
+                    snapshot: snapshot,
+                    relatedEntry: entryLookup[activityLookupKey(for: snapshot.instance.id, deployment: deployment)],
+                    recentWindow: recentWindow,
+                    now: now
+                )
+            }
+
+            let queuedItems = snapshot.queuedDeployments.map { queuedDeployment in
+                DokployActivityItem.from(
+                    queuedDeployment: queuedDeployment,
+                    snapshot: snapshot,
+                    relatedEntry: entryLookup[activityLookupKey(for: snapshot.instance.id, queuedDeployment: queuedDeployment)]
+                )
+            }
+
+            return deploymentItems + queuedItems
+        }
+
+        let unique = Dictionary(uniqueKeysWithValues: items.map { ($0.id, $0) })
+        return DokployActivitySorter.sort(Array(unique.values))
+    }
+
     var menuEntries: [MonitoredApplication] {
         let now = Date()
         let entries = allEntries.filter { entry in
@@ -74,6 +105,10 @@ final class MonitorStore: ObservableObject {
 
     var failedCount: Int {
         allEntries.filter(\.isFailing).count
+    }
+
+    var queuedActivityCount: Int {
+        activityItems.filter { $0.state == .queued }.count
     }
 
     var instanceIssues: [(DokployInstance, String)] {
@@ -112,6 +147,38 @@ final class MonitorStore: ObservableObject {
             ]
                 .contains { $0.localizedCaseInsensitiveContains(trimmed) }
         }
+    }
+
+    func activityItems(for instanceID: UUID?, searchText: String) -> [DokployActivityItem] {
+        let trimmed = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let baseItems = instanceID.map { id in
+            activityItems.filter { $0.instanceID == id }
+        } ?? activityItems
+
+        guard !trimmed.isEmpty else {
+            return baseItems
+        }
+
+        return baseItems.filter { item in
+            [
+                item.serviceName,
+                item.appName ?? "",
+                item.instanceName,
+                item.projectName ?? "",
+                item.environmentName ?? "",
+                item.title,
+                item.description ?? "",
+                item.typeLabel
+            ]
+                .contains { $0.localizedCaseInsensitiveContains(trimmed) }
+        }
+    }
+
+    func entry(for activityItem: DokployActivityItem) -> MonitoredApplication? {
+        guard let relatedEntryID = activityItem.relatedEntryID else {
+            return nil
+        }
+        return allEntries.first { $0.id == relatedEntryID }
     }
 
     func startMonitoring() {
@@ -336,5 +403,51 @@ final class MonitorStore: ObservableObject {
         return baseURL
             .appendingPathComponent("DokployRadar", isDirectory: true)
             .appendingPathComponent("instances.json", isDirectory: false)
+    }
+
+    private func activityLookupKey(for entry: MonitoredApplication) -> String {
+        activityLookupKey(for: entry.instanceID, serviceType: entry.serviceType, serviceID: entry.applicationId)
+    }
+
+    private func activityLookupKey(
+        for instanceID: UUID,
+        deployment: DokployCentralizedDeployment
+    ) -> String {
+        if let application = deployment.application {
+            return activityLookupKey(
+                for: instanceID,
+                serviceType: .application,
+                serviceID: application.applicationId
+            )
+        }
+
+        if let compose = deployment.compose {
+            return activityLookupKey(
+                for: instanceID,
+                serviceType: .compose,
+                serviceID: compose.composeId
+            )
+        }
+
+        return activityLookupKey(for: instanceID, serviceType: nil, serviceID: nil)
+    }
+
+    private func activityLookupKey(
+        for instanceID: UUID,
+        queuedDeployment: DokployQueuedDeployment
+    ) -> String {
+        activityLookupKey(
+            for: instanceID,
+            serviceType: queuedDeployment.serviceType,
+            serviceID: queuedDeployment.serviceID
+        )
+    }
+
+    private func activityLookupKey(
+        for instanceID: UUID,
+        serviceType: DokployServiceType?,
+        serviceID: String?
+    ) -> String {
+        "\(instanceID.uuidString):\(serviceType?.rawValue ?? "unknown"):\(serviceID ?? "unknown")"
     }
 }
