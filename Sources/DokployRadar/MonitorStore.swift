@@ -5,11 +5,37 @@ import Foundation
 final class MonitorStore: ObservableObject {
     typealias SnapshotFetcher = @Sendable (DokployInstance) async throws -> InstanceSnapshot
     typealias NotificationEmitter = @MainActor @Sendable ([DeploymentNotificationEvent]) -> Void
+    private static let derivedStateRefreshInterval: Duration = .seconds(30)
+
+    private struct DerivedState {
+        var allEntries: [MonitoredApplication] = []
+        var activityItems: [DokployActivityItem] = []
+        var menuEntries: [MonitoredApplication] = []
+        var entriesByID: [String: MonitoredApplication] = [:]
+        var deployingCount = 0
+        var recentCount = 0
+        var failedCount = 0
+        var queuedActivityCount = 0
+    }
+
+    private struct EntryQueryKey: Equatable {
+        let revision: Int
+        let instanceID: UUID?
+        let searchText: String
+    }
+
+    private struct ActivityQueryKey: Equatable {
+        let revision: Int
+        let instanceID: UUID?
+        let searchText: String
+    }
 
     let preferences: AppPreferences
 
     @Published private(set) var instances: [DokployInstance] = []
-    @Published private(set) var snapshots: [InstanceSnapshot] = []
+    @Published private(set) var snapshots: [InstanceSnapshot] = [] {
+        didSet { rebuildDerivedState() }
+    }
     @Published private(set) var isRefreshing = false
     @Published private(set) var lastRefresh: Date?
 
@@ -20,8 +46,14 @@ final class MonitorStore: ObservableObject {
     private let snapshotFetcher: SnapshotFetcher
     private let notificationEmitter: NotificationEmitter
     private var refreshTask: Task<Void, Never>?
+    private var derivedStateRefreshTask: Task<Void, Never>?
     private var cancellables: Set<AnyCancellable> = []
     private var notificationStates: [String: ServiceNotificationState] = [:]
+    private var derivedState = DerivedState()
+    private var derivedRevision = 0
+    private var cachedEntryQuery: (key: EntryQueryKey, value: [MonitoredApplication])?
+    private var cachedActivityQuery: (key: ActivityQueryKey, value: [DokployActivityItem])?
+    private var needsDerivedStateRebuild = false
 
     init(
         fileManager: FileManager = .default,
@@ -40,75 +72,47 @@ final class MonitorStore: ObservableObject {
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         bindPreferences()
         load()
+        startDerivedStateRefreshLoop()
     }
 
     deinit {
         refreshTask?.cancel()
+        derivedStateRefreshTask?.cancel()
     }
 
     var allEntries: [MonitoredApplication] {
-        DokploySorter.sort(
-            snapshots.flatMap(\.entries),
-            now: Date(),
-            recentWindow: preferences.recentWindowInterval
-        )
+        ensureDerivedStateCurrent()
+        return derivedState.allEntries
     }
 
     var activityItems: [DokployActivityItem] {
-        let now = Date()
-        let recentWindow = preferences.recentWindowInterval
-        let entryLookup = Dictionary(uniqueKeysWithValues: allEntries.map { (activityLookupKey(for: $0), $0) })
-
-        let items = snapshots.flatMap { snapshot -> [DokployActivityItem] in
-            let deploymentItems = snapshot.deployments.map { deployment in
-                DokployActivityItem.from(
-                    deployment: deployment,
-                    snapshot: snapshot,
-                    relatedEntry: entryLookup[activityLookupKey(for: snapshot.instance.id, deployment: deployment)],
-                    recentWindow: recentWindow,
-                    now: now
-                )
-            }
-
-            let queuedItems = snapshot.queuedDeployments.map { queuedDeployment in
-                DokployActivityItem.from(
-                    queuedDeployment: queuedDeployment,
-                    snapshot: snapshot,
-                    relatedEntry: entryLookup[activityLookupKey(for: snapshot.instance.id, queuedDeployment: queuedDeployment)]
-                )
-            }
-
-            return deploymentItems + queuedItems
-        }
-
-        let unique = Dictionary(uniqueKeysWithValues: items.map { ($0.id, $0) })
-        return DokployActivitySorter.sort(Array(unique.values))
+        ensureDerivedStateCurrent()
+        return derivedState.activityItems
     }
 
     var menuEntries: [MonitoredApplication] {
-        let now = Date()
-        let entries = allEntries.filter { entry in
-            preferences.showsSteadyServicesInMenu
-                || entry.group(now: now, recentWindow: preferences.recentWindowInterval) != .steady
-        }
-        return Array(entries.prefix(preferences.menuBarItemLimitValue))
+        ensureDerivedStateCurrent()
+        return derivedState.menuEntries
     }
 
     var deployingCount: Int {
-        allEntries.filter(\.isDeploying).count
+        ensureDerivedStateCurrent()
+        return derivedState.deployingCount
     }
 
     var recentCount: Int {
-        let now = Date()
-        return allEntries.filter { $0.isRecent(now: now, recentWindow: preferences.recentWindowInterval) }.count
+        ensureDerivedStateCurrent()
+        return derivedState.recentCount
     }
 
     var failedCount: Int {
-        allEntries.filter(\.isFailing).count
+        ensureDerivedStateCurrent()
+        return derivedState.failedCount
     }
 
     var queuedActivityCount: Int {
-        activityItems.filter { $0.state == .queued }.count
+        ensureDerivedStateCurrent()
+        return derivedState.queuedActivityCount
     }
 
     var instanceIssues: [(DokployInstance, String)] {
@@ -127,58 +131,86 @@ final class MonitorStore: ObservableObject {
 
     func entries(for instanceID: UUID?, searchText: String) -> [MonitoredApplication] {
         let trimmed = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let queryKey = EntryQueryKey(
+            revision: derivedRevision,
+            instanceID: instanceID,
+            searchText: trimmed
+        )
+
+        if let cachedEntryQuery, cachedEntryQuery.key == queryKey {
+            return cachedEntryQuery.value
+        }
+
         let baseEntries = instanceID.map { id in
             allEntries.filter { $0.instanceID == id }
         } ?? allEntries
 
-        guard !trimmed.isEmpty else {
-            return baseEntries
+        let result: [MonitoredApplication]
+        if trimmed.isEmpty {
+            result = baseEntries
+        } else {
+            result = baseEntries.filter { entry in
+                [
+                    entry.name,
+                    entry.appName ?? "",
+                    entry.projectName,
+                    entry.environmentName,
+                    entry.instanceName,
+                    entry.instanceHost,
+                    entry.typeLabel
+                ]
+                    .contains { $0.localizedCaseInsensitiveContains(trimmed) }
+            }
         }
 
-        return baseEntries.filter { entry in
-            [
-                entry.name,
-                entry.appName ?? "",
-                entry.projectName,
-                entry.environmentName,
-                entry.instanceName,
-                entry.instanceHost,
-                entry.typeLabel
-            ]
-                .contains { $0.localizedCaseInsensitiveContains(trimmed) }
-        }
+        cachedEntryQuery = (queryKey, result)
+        return result
     }
 
     func activityItems(for instanceID: UUID?, searchText: String) -> [DokployActivityItem] {
         let trimmed = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let queryKey = ActivityQueryKey(
+            revision: derivedRevision,
+            instanceID: instanceID,
+            searchText: trimmed
+        )
+
+        if let cachedActivityQuery, cachedActivityQuery.key == queryKey {
+            return cachedActivityQuery.value
+        }
+
         let baseItems = instanceID.map { id in
             activityItems.filter { $0.instanceID == id }
         } ?? activityItems
 
-        guard !trimmed.isEmpty else {
-            return baseItems
+        let result: [DokployActivityItem]
+        if trimmed.isEmpty {
+            result = baseItems
+        } else {
+            result = baseItems.filter { item in
+                [
+                    item.serviceName,
+                    item.appName ?? "",
+                    item.instanceName,
+                    item.projectName ?? "",
+                    item.environmentName ?? "",
+                    item.title,
+                    item.description ?? "",
+                    item.typeLabel
+                ]
+                    .contains { $0.localizedCaseInsensitiveContains(trimmed) }
+            }
         }
 
-        return baseItems.filter { item in
-            [
-                item.serviceName,
-                item.appName ?? "",
-                item.instanceName,
-                item.projectName ?? "",
-                item.environmentName ?? "",
-                item.title,
-                item.description ?? "",
-                item.typeLabel
-            ]
-                .contains { $0.localizedCaseInsensitiveContains(trimmed) }
-        }
+        cachedActivityQuery = (queryKey, result)
+        return result
     }
 
     func entry(for activityItem: DokployActivityItem) -> MonitoredApplication? {
         guard let relatedEntryID = activityItem.relatedEntryID else {
             return nil
         }
-        return allEntries.first { $0.id == relatedEntryID }
+        return derivedState.entriesByID[relatedEntryID]
     }
 
     func startMonitoring() {
@@ -349,16 +381,41 @@ final class MonitorStore: ObservableObject {
     private func bindPreferences() {
         preferences.objectWillChange
             .sink { [weak self] _ in
+                self?.invalidateDerivedState()
                 self?.objectWillChange.send()
             }
             .store(in: &cancellables)
 
         preferences.$refreshInterval
-            .dropFirst()
             .sink { [weak self] _ in
                 self?.restartMonitoringIfNeeded()
             }
             .store(in: &cancellables)
+    }
+
+    // Keeps time-based classifications (recent → steady) fresh between data fetches.
+    // Without this, stat cards and menu entries drift when refresh interval > 30s.
+    private func startDerivedStateRefreshLoop() {
+        guard derivedStateRefreshTask == nil else {
+            return
+        }
+
+        derivedStateRefreshTask = Task { [weak self] in
+            guard let self else {
+                return
+            }
+
+            while !Task.isCancelled {
+                try? await Task.sleep(for: Self.derivedStateRefreshInterval)
+                await MainActor.run {
+                    guard !self.snapshots.isEmpty else {
+                        return
+                    }
+                    self.rebuildDerivedState()
+                    self.objectWillChange.send()
+                }
+            }
+        }
     }
 
     private func restartMonitoringIfNeeded() {
@@ -368,6 +425,96 @@ final class MonitorStore: ObservableObject {
 
         stopMonitoring()
         startMonitoring()
+    }
+
+    private func invalidateDerivedState() {
+        needsDerivedStateRebuild = true
+    }
+
+    private func ensureDerivedStateCurrent() {
+        guard needsDerivedStateRebuild else {
+            return
+        }
+        rebuildDerivedState()
+    }
+
+    private func rebuildDerivedState() {
+        let now = Date()
+        let recentWindow = preferences.recentWindowInterval
+
+        let allEntries = DokploySorter.sort(
+            snapshots.flatMap(\.entries),
+            now: now,
+            recentWindow: recentWindow
+        )
+
+        let entryLookup = Dictionary(
+            uniqueKeysWithValues: allEntries.map { (activityLookupKey(for: $0), $0) }
+        )
+
+        let items = snapshots.flatMap { snapshot -> [DokployActivityItem] in
+            let deploymentItems = snapshot.deployments.map { deployment in
+                DokployActivityItem.from(
+                    deployment: deployment,
+                    snapshot: snapshot,
+                    relatedEntry: entryLookup[activityLookupKey(for: snapshot.instance.id, deployment: deployment)],
+                    recentWindow: recentWindow,
+                    now: now
+                )
+            }
+
+            let queuedItems = snapshot.queuedDeployments.map { queuedDeployment in
+                DokployActivityItem.from(
+                    queuedDeployment: queuedDeployment,
+                    snapshot: snapshot,
+                    relatedEntry: entryLookup[activityLookupKey(for: snapshot.instance.id, queuedDeployment: queuedDeployment)]
+                )
+            }
+
+            return deploymentItems + queuedItems
+        }
+
+        let unique = Dictionary(uniqueKeysWithValues: items.map { ($0.id, $0) })
+        let activityItems = DokployActivitySorter.sort(Array(unique.values))
+
+        var deployingCount = 0
+        var recentCount = 0
+        var failedCount = 0
+        for entry in allEntries {
+            if entry.isDeploying {
+                deployingCount += 1
+            }
+            if entry.isRecent(now: now, recentWindow: recentWindow) {
+                recentCount += 1
+            }
+            if entry.isFailing {
+                failedCount += 1
+            }
+        }
+
+        let menuEntries = Array(
+            allEntries
+                .filter { entry in
+                    preferences.showsSteadyServicesInMenu
+                        || entry.group(now: now, recentWindow: recentWindow) != .steady
+                }
+                .prefix(preferences.menuBarItemLimitValue)
+        )
+
+        derivedState = DerivedState(
+            allEntries: allEntries,
+            activityItems: activityItems,
+            menuEntries: menuEntries,
+            entriesByID: Dictionary(uniqueKeysWithValues: allEntries.map { ($0.id, $0) }),
+            deployingCount: deployingCount,
+            recentCount: recentCount,
+            failedCount: failedCount,
+            queuedActivityCount: activityItems.filter { $0.state == .queued }.count
+        )
+        derivedRevision &+= 1
+        cachedEntryQuery = nil
+        cachedActivityQuery = nil
+        needsDerivedStateRebuild = false
     }
 
     private func load() {

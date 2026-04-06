@@ -1016,10 +1016,14 @@ enum DokployDateParser {
 }
 
 enum DokployRelativeTime {
+    nonisolated(unsafe) private static let formatter: RelativeDateTimeFormatter = {
+        let f = RelativeDateTimeFormatter()
+        f.unitsStyle = .abbreviated
+        return f
+    }()
+
     static func shortString(since date: Date, now: Date) -> String {
-        let relativeFormatter = RelativeDateTimeFormatter()
-        relativeFormatter.unitsStyle = .abbreviated
-        return relativeFormatter.localizedString(for: date, relativeTo: now)
+        formatter.localizedString(for: date, relativeTo: now)
     }
 }
 

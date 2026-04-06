@@ -500,6 +500,16 @@ struct MainMenuView: View {
                 color: .purple,
                 isActive: store.allEntries.count > 0
             )
+
+            if store.queuedActivityCount > 0 {
+                StatCard(
+                    title: "Queued",
+                    value: store.queuedActivityCount,
+                    icon: "clock.badge.exclamationmark",
+                    color: .orange,
+                    isActive: true
+                )
+            }
         }
     }
 
@@ -1055,7 +1065,7 @@ struct MainMenuView: View {
                 Text(
                     dashboardMode == .services
                         ? "Try another search term, filter, or instance."
-                        : "Try another search term, filter, or instance."
+                        : "Try a different search term or activity filter."
                 )
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
@@ -1694,13 +1704,34 @@ private struct ActivityFeedRow: View {
 private struct ActivityStateBadge: View {
     let item: DokployActivityItem
 
+    @State private var animationPhase = false
+
     var body: some View {
-        Text(item.statusLabel)
-            .font(.system(size: 10, weight: .semibold))
-            .foregroundStyle(color)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 3)
-            .background(color.opacity(0.12), in: Capsule())
+        HStack(spacing: 4) {
+            if item.isActive {
+                Circle()
+                    .fill(color)
+                    .frame(width: 5, height: 5)
+                    .scaleEffect(animationPhase ? 1.4 : 1.0)
+                    .opacity(animationPhase ? 0.6 : 1.0)
+                    .animation(
+                        .easeInOut(duration: 0.8).repeatForever(autoreverses: true),
+                        value: animationPhase
+                    )
+            }
+
+            Text(item.statusLabel)
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(color)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 3)
+        .background(color.opacity(0.12), in: Capsule())
+        .onAppear {
+            if item.isActive {
+                animationPhase = true
+            }
+        }
     }
 
     private var color: Color {
@@ -1860,14 +1891,47 @@ private struct ActivityDetailPanel: View {
                 Spacer(minLength: 0)
             }
 
+            // Breadcrumb
+            HStack(spacing: 4) {
+                Image(systemName: "server.rack")
+                    .font(.system(size: 9))
+                    .foregroundStyle(.quaternary)
+                Text(item.instanceName)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.secondary)
+                if let projectName = item.projectName {
+                    Text("›")
+                        .foregroundStyle(.quaternary)
+                    Text(projectName)
+                        .font(.system(size: 11))
+                        .foregroundStyle(.tertiary)
+                }
+                if let environmentName = item.environmentName {
+                    Text("›")
+                        .foregroundStyle(.quaternary)
+                    Text(environmentName)
+                        .font(.system(size: 11))
+                        .foregroundStyle(.tertiary)
+                }
+            }
+            .lineLimit(1)
+
             Text(item.title)
                 .font(.system(size: 13, weight: .semibold))
 
             if let appName = item.appName, !appName.isEmpty {
-                Text(appName)
-                    .font(.system(size: 11, weight: .medium, design: .monospaced))
-                    .foregroundStyle(.secondary)
-                    .textSelection(.enabled)
+                HStack(spacing: 5) {
+                    Image(systemName: "tag")
+                        .font(.system(size: 9))
+                        .foregroundStyle(.tertiary)
+                    Text(appName)
+                        .font(.system(size: 11, weight: .medium, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 6))
             }
         }
     }
@@ -1881,16 +1945,9 @@ private struct ActivityDetailPanel: View {
             alignment: .leading,
             spacing: 8
         ) {
-            DetailFactCard(icon: "server.rack", label: "Instance", value: item.instanceName)
             DetailFactCard(icon: "circle.dotted", label: "Status", value: item.statusLabel, valueColor: accentColor)
             DetailFactCard(icon: "clock", label: "When", value: DokployRelativeTime.shortString(since: item.activityDate, now: .now))
             DetailFactCard(icon: "timer", label: "Duration", value: item.durationLabel ?? "—")
-            if let projectName = item.projectName {
-                DetailFactCard(icon: "folder", label: "Project", value: projectName)
-            }
-            if let environmentName = item.environmentName {
-                DetailFactCard(icon: "leaf", label: "Environment", value: environmentName)
-            }
         }
     }
 
