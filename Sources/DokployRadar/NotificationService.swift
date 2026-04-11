@@ -1,6 +1,6 @@
 import AppKit
 import Foundation
-import UserNotifications
+@preconcurrency import UserNotifications
 
 enum DeploymentNotificationEventKind: String, CaseIterable, Identifiable {
     case started
