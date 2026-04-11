@@ -1,0 +1,209 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version to package, for example 0.2.0. Defaults to the tag name without a leading v, or 0.1.0.
+        required: false
+        type: string
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  package-release:
+    runs-on: macos-latest
+    env:
+      APP_NAME: ${{ vars.APP_NAME }}
+      BUNDLE_IDENTIFIER: ${{ vars.BUNDLE_IDENTIFIER }}
+      HAS_SIGNING_SECRETS: ${{ secrets.BUILD_CERTIFICATE_BASE64 != '' && secrets.P12_PASSWORD != '' && secrets.KEYCHAIN_PASSWORD != '' && secrets.SIGNING_IDENTITY != '' }}
+      HAS_NOTARY_SECRETS: ${{ secrets.APPLE_ID != '' && secrets.APP_SPECIFIC_PASSWORD != '' && secrets.TEAM_ID != '' }}
+      HAS_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN != '' }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Cache dmgbuild environment
+        uses: actions/cache@v5
+        with:
+          path: .build/dmgbuild-venv
+          key: ${{ runner.os }}-dmgbuild-${{ hashFiles('Tools/package-release.sh', 'Packaging/dmgbuild-settings.py') }}
+
+      - name: Resolve release metadata
+        id: meta
+        env:
+          INPUT_VERSION: ${{ github.event.inputs.version }}
+        run: |
+          version="$INPUT_VERSION"
+
+          if [[ -z "$version" && "${GITHUB_REF_TYPE:-}" == "tag" ]]; then
+            version="${GITHUB_REF_NAME#v}"
+          fi
+
+          if [[ -z "$version" ]]; then
+            version="0.1.0"
+          fi
+
+          release_tag="v$version"
+
+          if [[ "${GITHUB_REF_TYPE:-}" == "tag" ]]; then
+            release_tag="$GITHUB_REF_NAME"
+          fi
+
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "release_tag=$release_tag" >> "$GITHUB_OUTPUT"
+
+      - name: Warm dmgbuild environment
+        run: |
+          if [[ -x .build/dmgbuild-venv/bin/dmgbuild ]] && ! .build/dmgbuild-venv/bin/dmgbuild --version >/dev/null 2>&1; then
+            rm -rf .build/dmgbuild-venv
+          fi
+
+          if [[ ! -x .build/dmgbuild-venv/bin/dmgbuild ]]; then
+            python3 -m venv .build/dmgbuild-venv
+            .build/dmgbuild-venv/bin/python -m pip install "dmgbuild==1.6.7"
+          fi
+
+      - name: Import Developer ID certificate
+        if: env.HAS_SIGNING_SECRETS == 'true'
+        env:
+          BUILD_CERTIFICATE_BASE64: ${{ secrets.BUILD_CERTIFICATE_BASE64 }}
+          P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          certificate_path="$RUNNER_TEMP/dokploy-radar-signing-certificate.p12"
+          keychain_path="$RUNNER_TEMP/dokploy-radar-signing.keychain-db"
+
+          echo -n "$BUILD_CERTIFICATE_BASE64" | base64 --decode -o "$certificate_path"
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$keychain_path"
+          security set-keychain-settings -lut 21600 "$keychain_path"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$keychain_path"
+          security import "$certificate_path" -P "$P12_PASSWORD" -A -f pkcs12 -k "$keychain_path"
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$keychain_path"
+          security list-keychains -d user -s "$keychain_path" login.keychain-db
+          security default-keychain -d user -s "$keychain_path"
+
+      - name: Package release artifacts
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+          BUILD_NUMBER: ${{ github.run_number }}
+          SIGNING_IDENTITY: ${{ secrets.SIGNING_IDENTITY }}
+        run: |
+          export DEVELOPER_DIR="$(xcode-select -p)"
+          ./Tools/package-release.sh
+
+      - name: Notarize release artifacts
+        if: env.HAS_SIGNING_SECRETS == 'true' && env.HAS_NOTARY_SECRETS == 'true'
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APP_SPECIFIC_PASSWORD: ${{ secrets.APP_SPECIFIC_PASSWORD }}
+          TEAM_ID: ${{ secrets.TEAM_ID }}
+        run: ./Tools/notarize-release.sh
+
+      - name: Upload workflow artifacts
+        uses: actions/upload-artifact@v6
+        with:
+          name: dokploy-radar-release-${{ steps.meta.outputs.version }}
+          path: |
+            dist/${{ steps.meta.outputs.version }}/*.zip
+            dist/${{ steps.meta.outputs.version }}/*.dmg
+            dist/${{ steps.meta.outputs.version }}/notary-log.json
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Publish GitHub release assets
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.meta.outputs.version }}
+          RELEASE_TAG: ${{ steps.meta.outputs.release_tag }}
+        run: |
+          app_name="${APP_NAME:-Dokploy Radar}"
+          zip_name="${app_name// /-}-${VERSION}.zip"
+          dmg_name="${app_name// /-}-${VERSION}.dmg"
+          release_args=()
+
+          if [[ "$VERSION" == *-* ]]; then
+            release_args+=(--prerelease)
+          fi
+
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release edit "$RELEASE_TAG" \
+              --title "$app_name $VERSION" \
+              --generate-notes
+          else
+            gh release create "$RELEASE_TAG" \
+              --title "$app_name $VERSION" \
+              --generate-notes \
+              "${release_args[@]}"
+          fi
+
+          gh release upload "$RELEASE_TAG" "dist/$VERSION/$zip_name" "dist/$VERSION/$dmg_name" --clobber
+
+      - name: Update Homebrew tap
+        if: env.HAS_TAP_TOKEN == 'true' && !contains(steps.meta.outputs.version, '-')
+        env:
+          TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          VERSION: ${{ steps.meta.outputs.version }}
+          APP_NAME: ${{ env.APP_NAME }}
+        run: |
+          app_name="${APP_NAME:-Dokploy Radar}"
+          zip_name="${app_name// /-}-${VERSION}.zip"
+          zip_path="dist/$VERSION/$zip_name"
+          sha256="$(shasum -a 256 "$zip_path" | awk '{print $1}')"
+
+          git clone "https://x-access-token:${TAP_TOKEN}@github.com/mukhtharcm/homebrew-tap.git" "$RUNNER_TEMP/homebrew-tap"
+          cd "$RUNNER_TEMP/homebrew-tap"
+
+          VERSION="$VERSION" SHA256="$sha256" python3 - <<'PY'
+          from pathlib import Path
+          import os
+          import re
+
+          cask_path = Path("Casks/dokploy-radar.rb")
+          content = cask_path.read_text()
+          content = re.sub(r'version ".*"', f'version "{os.environ["VERSION"]}"', content, count=1)
+          content = re.sub(r'sha256 ".*"', f'sha256 "{os.environ["SHA256"]}"', content, count=1)
+          cask_path.write_text(content)
+          PY
+
+          git config user.name "mukhtharcm"
+          git config user.email "56378562+mukhtharcm@users.noreply.github.com"
+          git add Casks/dokploy-radar.rb
+
+          if git diff --cached --quiet; then
+            echo "Homebrew tap already up to date."
+            exit 0
+          fi
+
+          git commit -m "Update dokploy-radar to ${VERSION}"
+          git push
+
+      - name: Write release summary
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: |
+          bundle_identifier="${BUNDLE_IDENTIFIER:-com.mukhtharcm.dokployradar}"
+
+          if [[ "$HAS_SIGNING_SECRETS" == "true" && "$HAS_NOTARY_SECRETS" == "true" ]]; then
+            status="signed and notarized"
+          elif [[ "$HAS_SIGNING_SECRETS" == "true" ]]; then
+            status="signed but not notarized"
+          else
+            status="unsigned"
+          fi
+
+          {
+            echo "## Dokploy Radar release"
+            echo
+            echo "- Version: $VERSION"
+            echo "- Bundle identifier: $bundle_identifier"
+            echo "- Artifact status: $status"
+          } >> "$GITHUB_STEP_SUMMARY"
