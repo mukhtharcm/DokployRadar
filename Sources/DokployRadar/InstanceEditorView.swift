@@ -39,16 +39,28 @@ struct InstanceEditorView: View {
         VStack(alignment: .leading, spacing: 0) {
             // Header
             HStack(spacing: 10) {
-                Image(systemName: existingInstance == nil ? "plus.circle.fill" : "pencil.circle.fill")
-                    .font(.system(size: 22))
-                    .foregroundStyle(.tint)
+                ZStack {
+                    RoundedRectangle(cornerRadius: 10)
+                        .fill(
+                            LinearGradient(
+                                colors: [Color.accentColor, Color.accentColor.opacity(0.65)],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                        .frame(width: 36, height: 36)
+
+                    Image(systemName: existingInstance == nil ? "plus" : "pencil")
+                        .font(.system(size: 15, weight: .bold))
+                        .foregroundStyle(.white)
+                }
 
                 VStack(alignment: .leading, spacing: 1) {
                     Text(title)
-                        .font(.headline)
+                        .font(.system(size: 15, weight: .bold))
 
                     Text("Configure the connection to your Dokploy instance.")
-                        .font(.caption)
+                        .font(.system(size: 11))
                         .foregroundStyle(.secondary)
                 }
             }
@@ -58,7 +70,7 @@ struct InstanceEditorView: View {
             VStack(alignment: .leading, spacing: 14) {
                 VStack(alignment: .leading, spacing: 5) {
                     Text("Instance Name")
-                        .font(.system(size: 11, weight: .medium))
+                        .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(.secondary)
                     TextField("e.g. Production", text: $name)
                         .textFieldStyle(.roundedBorder)
@@ -67,7 +79,7 @@ struct InstanceEditorView: View {
 
                 VStack(alignment: .leading, spacing: 5) {
                     Text("Base URL")
-                        .font(.system(size: 11, weight: .medium))
+                        .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(.secondary)
                     TextField("e.g. https://dokploy.example.com", text: $baseURLString)
                         .textFieldStyle(.roundedBorder)
@@ -76,7 +88,7 @@ struct InstanceEditorView: View {
 
                 VStack(alignment: .leading, spacing: 5) {
                     Text("API Token")
-                        .font(.system(size: 11, weight: .medium))
+                        .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(.secondary)
                     SecureField("Paste your API token", text: $apiToken)
                         .textFieldStyle(.roundedBorder)

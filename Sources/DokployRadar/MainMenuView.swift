@@ -171,23 +171,34 @@ struct MainMenuView: View {
     private var menuHeader: some View {
         HStack(alignment: .center, spacing: 10) {
             ZStack {
-                Circle()
-                    .fill(Color.accentColor.opacity(0.12))
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(
+                        LinearGradient(
+                            colors: [Color.accentColor, Color.accentColor.opacity(0.65)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
                     .frame(width: 32, height: 32)
 
                 Image(systemName: "dot.radiowaves.left.and.right")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(.tint)
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundStyle(.white)
             }
 
             VStack(alignment: .leading, spacing: 1) {
                 Text("Dokploy Radar")
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(.system(size: 14, weight: .bold))
 
                 if let lastRefresh = store.lastRefresh {
-                    Text("Updated \(DokployRelativeTime.shortString(since: lastRefresh, now: .now))")
-                        .font(.system(size: 10))
-                        .foregroundStyle(.secondary)
+                    HStack(spacing: 4) {
+                        Circle()
+                            .fill(.green)
+                            .frame(width: 5, height: 5)
+                        Text("Updated \(DokployRelativeTime.shortString(since: lastRefresh, now: .now))")
+                            .font(.system(size: 10))
+                            .foregroundStyle(.secondary)
+                    }
                 }
             }
 
@@ -217,21 +228,30 @@ struct MainMenuView: View {
                 color: .blue,
                 icon: "arrow.triangle.2.circlepath"
             )
-            Spacer()
+
+            Divider()
+                .frame(height: 28)
+
             MenuStatPill(
                 value: store.recentCount,
                 label: "recent",
                 color: .green,
                 icon: "checkmark.circle"
             )
-            Spacer()
+
+            Divider()
+                .frame(height: 28)
+
             MenuStatPill(
                 value: store.failedCount,
                 label: "failed",
                 color: .red,
                 icon: "exclamationmark.triangle"
             )
-            Spacer()
+
+            Divider()
+                .frame(height: 28)
+
             MenuStatPill(
                 value: store.instances.filter(\.isEnabled).count,
                 label: "instances",
@@ -240,7 +260,7 @@ struct MainMenuView: View {
             )
         }
         .padding(.horizontal, 10)
-        .padding(.vertical, 8)
+        .padding(.vertical, 10)
         .background {
             RoundedRectangle(cornerRadius: 10)
                 .fill(Color.primary.opacity(0.03))
@@ -301,7 +321,7 @@ struct MainMenuView: View {
     }
 
     private var menuFooter: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: 6) {
             if let onOpenApp {
                 MenuFooterButton(label: "Dashboard", icon: "macwindow") {
                     onOpenApp()
@@ -309,7 +329,7 @@ struct MainMenuView: View {
             }
 
             if let onOpenSettings {
-                MenuFooterButton(label: "Settings", icon: "gearshape") {
+                MenuFooterButton(label: "Settings", icon: "gearshape.fill") {
                     onOpenSettings()
                 }
             }
@@ -317,6 +337,10 @@ struct MainMenuView: View {
             Spacer()
 
             if showsQuitButton {
+                Divider()
+                    .frame(height: 14)
+                    .padding(.horizontal, 2)
+
                 MenuFooterButton(label: "Quit", icon: "power") {
                     NSApplication.shared.terminate(nil)
                 }
@@ -386,15 +410,16 @@ struct MainMenuView: View {
 
     private var dashboardTopBar: some View {
         HStack(alignment: .center, spacing: 12) {
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: 3) {
                 Text(selectedInstance?.name ?? "All Instances")
                     .font(.title2.weight(.bold))
 
                 if let lastRefresh = store.lastRefresh {
-                    HStack(spacing: 4) {
+                    HStack(spacing: 5) {
                         Circle()
                             .fill(.green)
                             .frame(width: 6, height: 6)
+                            .shadow(color: .green.opacity(0.4), radius: 2)
                         Text("Updated \(DokployRelativeTime.shortString(since: lastRefresh, now: .now))")
                             .font(.caption)
                             .foregroundStyle(.secondary)
@@ -427,8 +452,15 @@ struct MainMenuView: View {
                     }
                 }
                 .padding(.horizontal, 10)
-                .padding(.vertical, 6)
-                .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 8))
+                .padding(.vertical, 7)
+                .background(
+                    Color.primary.opacity(0.04),
+                    in: RoundedRectangle(cornerRadius: 8)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.5)
+                )
                 .frame(width: 220)
 
                 Button {
@@ -460,7 +492,7 @@ struct MainMenuView: View {
                     Button {
                         onOpenSettings()
                     } label: {
-                        Image(systemName: "gearshape")
+                        Image(systemName: "gearshape.fill")
                             .font(.system(size: 12, weight: .medium))
                     }
                     .buttonStyle(.bordered)
@@ -988,27 +1020,34 @@ struct MainMenuView: View {
     }
 
     private var quietState: some View {
-        VStack(spacing: 10) {
+        VStack(spacing: 12) {
             ZStack {
                 Circle()
-                    .fill(Color.green.opacity(0.08))
+                    .fill(
+                        LinearGradient(
+                            colors: [Color.green.opacity(0.1), Color.green.opacity(0.04)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
                     .frame(width: 48, height: 48)
 
                 Image(systemName: "checkmark.seal.fill")
                     .font(.system(size: 20))
-                    .foregroundStyle(.green.opacity(0.6))
+                    .foregroundStyle(.green)
             }
 
-            VStack(spacing: 2) {
+            VStack(spacing: 3) {
                 Text("All quiet")
                     .font(.system(size: 13, weight: .semibold))
 
                 Text(quietStateMessage)
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
             }
         }
-        .padding(.vertical, 16)
+        .padding(.vertical, 18)
         .frame(maxWidth: .infinity)
     }
 
@@ -1257,13 +1296,18 @@ private struct MenuBarIconButton: View {
     var help: String = ""
     let action: () -> Void
 
+    @State private var isHovered = false
+
     var body: some View {
         Button(action: action) {
             Image(systemName: icon)
                 .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(.secondary)
-                .frame(width: 24, height: 24)
-                .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 6))
+                .foregroundStyle(isHovered ? .primary : .secondary)
+                .frame(width: 26, height: 26)
+                .background(
+                    isHovered ? Color.primary.opacity(0.1) : Color.primary.opacity(0.05),
+                    in: RoundedRectangle(cornerRadius: 7)
+                )
                 .rotationEffect(.degrees(isSpinning ? 360 : 0))
                 .animation(
                     isSpinning
@@ -1274,6 +1318,11 @@ private struct MenuBarIconButton: View {
         }
         .buttonStyle(.plain)
         .help(help)
+        .onHover { hovering in
+            withAnimation(.easeInOut(duration: 0.12)) {
+                isHovered = hovering
+            }
+        }
     }
 }
 
@@ -1284,7 +1333,11 @@ private struct MenuStatPill: View {
     let icon: String
 
     var body: some View {
-        VStack(spacing: 2) {
+        VStack(spacing: 3) {
+            Image(systemName: icon)
+                .font(.system(size: 10, weight: .medium))
+                .foregroundStyle(value > 0 ? color : Color.secondary.opacity(0.4))
+
             Text("\(value)")
                 .font(.system(size: 16, weight: .bold, design: .rounded))
                 .foregroundStyle(value > 0 ? color : .secondary)
@@ -1312,12 +1365,16 @@ private struct MenuSection<Content: View>: View {
                     .foregroundStyle(color)
 
                 Text(title.uppercased())
-                    .font(.system(size: 9, weight: .bold, design: .rounded))
-                    .foregroundStyle(color.opacity(0.8))
-                    .tracking(0.3)
+                    .font(.system(size: 9.5, weight: .bold, design: .rounded))
+                    .foregroundStyle(color.opacity(0.85))
+                    .tracking(0.4)
+
+                Rectangle()
+                    .fill(color.opacity(0.12))
+                    .frame(height: 1)
             }
             .padding(.horizontal, 6)
-            .padding(.top, 6)
+            .padding(.top, 8)
             .padding(.bottom, 2)
 
             content
@@ -1330,6 +1387,8 @@ private struct MenuFooterButton: View {
     let icon: String
     let action: () -> Void
 
+    @State private var isHovered = false
+
     var body: some View {
         Button(action: action) {
             HStack(spacing: 4) {
@@ -1338,12 +1397,20 @@ private struct MenuFooterButton: View {
                 Text(label)
                     .font(.system(size: 11, weight: .medium))
             }
-            .foregroundStyle(.secondary)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 6))
+            .foregroundStyle(isHovered ? .primary : .secondary)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background(
+                isHovered ? Color.primary.opacity(0.08) : Color.primary.opacity(0.04),
+                in: RoundedRectangle(cornerRadius: 7)
+            )
         }
         .buttonStyle(.plain)
+        .onHover { hovering in
+            withAnimation(.easeInOut(duration: 0.12)) {
+                isHovered = hovering
+            }
+        }
     }
 }
 
@@ -3114,8 +3181,13 @@ private struct StatCard: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Image(systemName: icon)
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(isActive ? color : Color.secondary.opacity(0.5))
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(isActive ? color : Color.secondary.opacity(0.4))
+                    .frame(width: 28, height: 28)
+                    .background(
+                        (isActive ? color.opacity(0.1) : Color.secondary.opacity(0.05)),
+                        in: RoundedRectangle(cornerRadius: 7)
+                    )
 
                 Spacer()
 
@@ -3123,12 +3195,13 @@ private struct StatCard: View {
                     Circle()
                         .fill(color)
                         .frame(width: 6, height: 6)
+                        .shadow(color: color.opacity(0.4), radius: 3)
                 }
             }
 
             Text("\(value)")
                 .font(.system(size: 28, weight: .bold, design: .rounded))
-                .foregroundStyle(isActive ? color : .secondary)
+                .foregroundStyle(isActive ? color : .secondary.opacity(0.5))
 
             Text(title)
                 .font(.system(size: 11, weight: .medium))
@@ -3138,7 +3211,19 @@ private struct StatCard: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background {
             RoundedRectangle(cornerRadius: 12)
-                .fill(isHovered ? color.opacity(0.06) : Color.primary.opacity(0.02))
+                .fill(
+                    isActive && isHovered
+                        ? AnyShapeStyle(
+                            LinearGradient(
+                                colors: [color.opacity(0.08), color.opacity(0.03)],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                        : isHovered
+                            ? AnyShapeStyle(Color.primary.opacity(0.04))
+                            : AnyShapeStyle(Color.primary.opacity(0.02))
+                )
                 .overlay(
                     RoundedRectangle(cornerRadius: 12)
                         .strokeBorder(
@@ -3358,6 +3443,7 @@ private struct StatusBadge: View {
             Circle()
                 .fill(dotColor(for: group))
                 .frame(width: 5, height: 5)
+                .shadow(color: dotColor(for: group).opacity(0.4), radius: isAnimated ? 3 : 0)
                 .scaleEffect(isAnimated && animationPhase ? 1.4 : 1.0)
                 .opacity(isAnimated && animationPhase ? 0.6 : 1.0)
                 .animation(
@@ -3371,9 +3457,13 @@ private struct StatusBadge: View {
                 .font(.system(size: 9, weight: .bold, design: .rounded))
                 .foregroundStyle(textColor(for: group))
         }
-        .padding(.horizontal, 7)
+        .padding(.horizontal, 8)
         .padding(.vertical, 3)
         .background(backgroundColor(for: group), in: Capsule())
+        .overlay(
+            Capsule()
+                .strokeBorder(borderColor(for: group), lineWidth: 0.5)
+        )
         .onAppear {
             if isAnimated {
                 animationPhase = true
@@ -3418,8 +3508,17 @@ private struct StatusBadge: View {
         switch group {
         case .deploying: return .blue.opacity(0.1)
         case .recent: return .green.opacity(0.1)
-        case .failed: return .red.opacity(0.1)
+        case .failed: return .red.opacity(0.12)
         case .steady: return .secondary.opacity(0.08)
+        }
+    }
+
+    private func borderColor(for group: MonitoredApplicationGroup) -> Color {
+        switch group {
+        case .deploying: return .blue.opacity(0.15)
+        case .recent: return .green.opacity(0.15)
+        case .failed: return .red.opacity(0.2)
+        case .steady: return .clear
         }
     }
 }

@@ -327,8 +327,12 @@ private struct PreferenceSection<Content: View>: View {
 
                 Text(title.uppercased())
                     .font(.system(size: 10, weight: .bold, design: .rounded))
-                    .foregroundStyle(color.opacity(0.8))
+                    .foregroundStyle(color.opacity(0.85))
                     .tracking(0.4)
+
+                Rectangle()
+                    .fill(color.opacity(0.12))
+                    .frame(height: 1)
             }
 
             VStack(spacing: 0) {
