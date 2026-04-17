@@ -70,61 +70,52 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
           children: [
             Card(
               clipBehavior: Clip.antiAlias,
-              child: IntrinsicHeight(
-                child: Row(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Container(width: 4, color: color),
-                    Expanded(
-                      child: Padding(
-                        padding: const EdgeInsets.all(18),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: Text(
-                                    widget.service.name,
-                                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                                          fontWeight: FontWeight.w700,
-                                        ),
-                                  ),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            widget.service.name,
+                            style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                                  fontWeight: FontWeight.w600,
                                 ),
-                                StatusPill(
-                                  label: widget.service.statusLabel(DateTime.now(), widget.recentWindow),
-                                  color: color,
-                                  icon: iconForServiceGroup(group),
-                                ),
-                              ],
-                            ),
-                            if (widget.service.appName case final String appName when appName.isNotEmpty) ...[
-                              const SizedBox(height: 4),
-                              Text(
-                                appName,
-                                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                                      color: Theme.of(context).colorScheme.onSurfaceVariant,
-                                    ),
-                              ),
-                            ],
-                            const SizedBox(height: 14),
-                            Wrap(
-                              spacing: 8,
-                              runSpacing: 8,
-                              children: [
-                                _InfoChip(label: widget.service.serviceType.displayName),
-                                _InfoChip(label: widget.service.instanceName),
-                                _InfoChip(label: widget.service.projectName),
-                                _InfoChip(label: widget.service.environmentName),
-                                _InfoChip(
-                                  label: widget.service.lastActivityDate == null
-                                      ? 'No recent deployment'
-                                      : 'Last activity ${formatRelativeTime(widget.service.lastActivityDate)}',
-                                ),
-                              ],
-                            ),
-                          ],
+                          ),
                         ),
+                        StatusPill(
+                          label: widget.service.statusLabel(DateTime.now(), widget.recentWindow),
+                          color: color,
+                          icon: iconForServiceGroup(group),
+                        ),
+                      ],
+                    ),
+                    if (widget.service.appName case final String appName when appName.isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        appName,
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                              color: Theme.of(context).colorScheme.onSurfaceVariant,
+                            ),
                       ),
+                    ],
+                    const SizedBox(height: 14),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        _InfoChip(label: widget.service.serviceType.displayName),
+                        _InfoChip(label: widget.service.instanceName),
+                        _InfoChip(label: widget.service.projectName),
+                        _InfoChip(label: widget.service.environmentName),
+                        _InfoChip(
+                          label: widget.service.lastActivityDate == null
+                              ? 'No recent deployment'
+                              : 'Last activity ${formatRelativeTime(widget.service.lastActivityDate)}',
+                        ),
+                      ],
                     ),
                   ],
                 ),
@@ -272,7 +263,7 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
                                     child: Text(
                                       record.title,
                                       style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                                            fontWeight: FontWeight.w800,
+                                            fontWeight: FontWeight.w600,
                                           ),
                                     ),
                                   ),
@@ -347,7 +338,7 @@ class _SectionTitle extends StatelessWidget {
         Text(
           title,
           style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                fontWeight: FontWeight.w800,
+                fontWeight: FontWeight.w600,
               ),
         ),
         const SizedBox(height: 4),
@@ -408,7 +399,7 @@ class _ChipSection extends StatelessWidget {
         Text(
           title,
           style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                fontWeight: FontWeight.w800,
+                fontWeight: FontWeight.w600,
               ),
         ),
         const SizedBox(height: 8),
@@ -438,7 +429,7 @@ class _InfoChip extends StatelessWidget {
       child: Text(
         label,
         style: Theme.of(context).textTheme.labelLarge?.copyWith(
-              fontWeight: FontWeight.w700,
+              fontWeight: FontWeight.w600,
             ),
       ),
     );
@@ -510,7 +501,7 @@ class _InfoCard extends StatelessWidget {
             Text(
               title,
               style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w800,
+                    fontWeight: FontWeight.w600,
                   ),
             ),
             const SizedBox(height: 8),

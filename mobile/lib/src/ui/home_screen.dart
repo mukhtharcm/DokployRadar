@@ -300,7 +300,7 @@ class _OverviewTab extends StatelessWidget {
               'Instances',
               style: Theme.of(
                 context,
-              ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
+              ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w600),
             ),
             const SizedBox(height: 12),
             ...controller.snapshots.map(
@@ -318,7 +318,7 @@ class _OverviewTab extends StatelessWidget {
               'Recent service highlights',
               style: Theme.of(
                 context,
-              ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
+              ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w600),
             ),
             const SizedBox(height: 12),
             ...controller.allServices
@@ -436,13 +436,6 @@ class _ServicesTab extends StatelessWidget {
               },
             )
           else ...[
-            Text(
-              '${services.length} service${services.length == 1 ? '' : 's'}',
-              style: Theme.of(
-                context,
-              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
-            ),
-            const SizedBox(height: 12),
             ...services.map(
               (service) => Padding(
                 padding: const EdgeInsets.only(bottom: 12),
@@ -556,13 +549,6 @@ class _ActivityTab extends StatelessWidget {
               },
             )
           else ...[
-            Text(
-              '${items.length} event${items.length == 1 ? '' : 's'}',
-              style: Theme.of(
-                context,
-              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
-            ),
-            const SizedBox(height: 12),
             ...items.map(
               (item) => Padding(
                 padding: const EdgeInsets.only(bottom: 12),
@@ -685,27 +671,21 @@ class _ScopeSelector extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'Scope',
-          style: Theme.of(
-            context,
-          ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
-        ),
-        const SizedBox(height: 10),
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: [
-            ChoiceChip(
-              label: const Text('All instances'),
-              selected: controller.selectedInstanceId == null,
-              onSelected: (_) => unawaited(controller.selectInstance(null)),
-            ),
-            ...controller.instances.map(
-              (instance) => ChoiceChip(
+    if (controller.instances.length <= 1) return const SizedBox.shrink();
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        children: [
+          ChoiceChip(
+            label: const Text('All'),
+            selected: controller.selectedInstanceId == null,
+            onSelected: (_) => unawaited(controller.selectInstance(null)),
+          ),
+          const SizedBox(width: 8),
+          ...controller.instances.map(
+            (instance) => Padding(
+              padding: const EdgeInsets.only(right: 8),
+              child: ChoiceChip(
                 label: Text(instance.name),
                 selected: controller.selectedInstanceId == instance.id,
                 onSelected: (_) => unawaited(
@@ -717,9 +697,9 @@ class _ScopeSelector extends StatelessWidget {
                 ),
               ),
             ),
-          ],
-        ),
-      ],
+          ),
+        ],
+      ),
     );
   }
 }
@@ -812,16 +792,20 @@ class _ServiceFilterRow extends StatelessWidget {
       };
     }
 
-    return Wrap(
-      spacing: 8,
-      runSpacing: 8,
-      children: ServiceFilter.values.map((filter) {
-        return FilterChip(
-          label: Text('${filter.label} (${countFor(filter)})'),
-          selected: controller.serviceFilter == filter,
-          onSelected: (_) => controller.updateServiceFilter(filter),
-        );
-      }).toList(),
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        children: ServiceFilter.values.map((filter) {
+          return Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: FilterChip(
+              label: Text('${filter.label} (${countFor(filter)})'),
+              selected: controller.serviceFilter == filter,
+              onSelected: (_) => controller.updateServiceFilter(filter),
+            ),
+          );
+        }).toList(),
+      ),
     );
   }
 }
@@ -870,16 +854,20 @@ class _ActivityFilterRow extends StatelessWidget {
       };
     }
 
-    return Wrap(
-      spacing: 8,
-      runSpacing: 8,
-      children: ActivityFilter.values.map((filter) {
-        return FilterChip(
-          label: Text('${filter.label} (${countFor(filter)})'),
-          selected: controller.activityFilter == filter,
-          onSelected: (_) => controller.updateActivityFilter(filter),
-        );
-      }).toList(),
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        children: ActivityFilter.values.map((filter) {
+          return Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: FilterChip(
+              label: Text('${filter.label} (${countFor(filter)})'),
+              selected: controller.activityFilter == filter,
+              onSelected: (_) => controller.updateActivityFilter(filter),
+            ),
+          );
+        }).toList(),
+      ),
     );
   }
 }
@@ -907,7 +895,7 @@ class _IssueBanner extends StatelessWidget {
                   child: Text(
                     'Instance issues',
                     style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w800,
+                      fontWeight: FontWeight.w600,
                     ),
                   ),
                 ),
@@ -960,7 +948,7 @@ class _InitializationIssueBanner extends StatelessWidget {
                   child: Text(
                     'Saved data issue',
                     style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w800,
+                      fontWeight: FontWeight.w600,
                     ),
                   ),
                 ),
@@ -1022,64 +1010,55 @@ class _InstanceSnapshotCard extends StatelessWidget {
       clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: onTap,
-        child: IntrinsicHeight(
-          child: Row(
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Container(width: 4, color: statusColor),
-              Expanded(
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              snapshot.instance.name,
-                              style: Theme.of(context).textTheme.titleMedium
-                                  ?.copyWith(fontWeight: FontWeight.w700),
-                            ),
-                          ),
-                          StatusPill(
-                            label: statusLabel,
-                            color: statusColor,
-                            icon: Icons.circle_rounded,
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        snapshot.instance.hostLabel,
-                        style: Theme.of(context).textTheme.bodySmall
-                            ?.copyWith(color: scheme.onSurfaceVariant),
-                      ),
-                      if (snapshot.errorMessage != null) ...[
-                        const SizedBox(height: 8),
-                        Text(
-                          snapshot.errorMessage!,
-                          style: Theme.of(context).textTheme.bodySmall
-                              ?.copyWith(color: scheme.error),
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ],
-                      const SizedBox(height: 10),
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: [
-                          _MetricChip(label: '${snapshot.entries.length} services'),
-                          _MetricChip(label: '${snapshot.deployingCount} deploying'),
-                          _MetricChip(
-                            label: '${snapshot.recentCount(recentWindow)} recent',
-                          ),
-                          _MetricChip(label: '${snapshot.failedCount} failed'),
-                        ],
-                      ),
-                    ],
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      snapshot.instance.name,
+                      style: Theme.of(context).textTheme.titleMedium
+                          ?.copyWith(fontWeight: FontWeight.w600),
+                    ),
                   ),
+                  StatusPill(
+                    label: statusLabel,
+                    color: statusColor,
+                    icon: Icons.circle_rounded,
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              Text(
+                snapshot.instance.hostLabel,
+                style: Theme.of(context).textTheme.bodySmall
+                    ?.copyWith(color: scheme.onSurfaceVariant),
+              ),
+              if (snapshot.errorMessage != null) ...[
+                const SizedBox(height: 8),
+                Text(
+                  snapshot.errorMessage!,
+                  style: Theme.of(context).textTheme.bodySmall
+                      ?.copyWith(color: scheme.error),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
                 ),
+              ],
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  _MetricChip(label: '${snapshot.entries.length} services'),
+                  _MetricChip(label: '${snapshot.deployingCount} deploying'),
+                  _MetricChip(
+                    label: '${snapshot.recentCount(recentWindow)} recent',
+                  ),
+                  _MetricChip(label: '${snapshot.failedCount} failed'),
+                ],
               ),
             ],
           ),
@@ -1110,58 +1089,49 @@ class _ServiceCard extends StatelessWidget {
       clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: onTap,
-        child: IntrinsicHeight(
-          child: Row(
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Container(width: 4, color: color),
-              Expanded(
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              service.name,
-                              style: Theme.of(context).textTheme.titleMedium
-                                  ?.copyWith(fontWeight: FontWeight.w700),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          StatusPill(
-                            label: service.statusLabel(now, recentWindow),
-                            color: color,
-                            icon: iconForServiceGroup(group),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        '${service.projectName} / ${service.environmentName}',
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: Theme.of(context).colorScheme.onSurfaceVariant,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      if (service.lastActivityDate != null) ...[
-                        const SizedBox(height: 2),
-                        Text(
-                          'Last activity ${formatRelativeTime(service.lastActivityDate)}',
-                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: Theme.of(context).colorScheme.onSurfaceVariant.withValues(alpha: 0.7),
-                            fontSize: 11,
-                          ),
-                        ),
-                      ],
-                    ],
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      service.name,
+                      style: Theme.of(context).textTheme.titleMedium
+                          ?.copyWith(fontWeight: FontWeight.w600),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  StatusPill(
+                    label: service.statusLabel(now, recentWindow),
+                    color: color,
+                    icon: iconForServiceGroup(group),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              Text(
+                '${service.projectName} / ${service.environmentName}',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+              if (service.lastActivityDate != null) ...[
+                const SizedBox(height: 2),
+                Text(
+                  'Last activity ${formatRelativeTime(service.lastActivityDate)}',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant.withValues(alpha: 0.6),
+                    fontSize: 11,
                   ),
                 ),
-              ),
+              ],
             ],
           ),
         ),
@@ -1186,57 +1156,48 @@ class _ActivityCard extends StatelessWidget {
       clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: onTap,
-        child: IntrinsicHeight(
-          child: Row(
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Container(width: 4, color: color),
-              Expanded(
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              item.serviceName,
-                              style: Theme.of(context).textTheme.titleMedium
-                                  ?.copyWith(fontWeight: FontWeight.w700),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          StatusPill(
-                            label: item.state.displayName,
-                            color: color,
-                            icon: iconForActivityState(item.state),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        item.title,
-                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          fontWeight: FontWeight.w500,
-                        ),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        [
-                          formatRelativeTime(item.activityDate),
-                          if (item.durationLabel != null) item.durationLabel!,
-                        ].join(' · '),
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: Theme.of(context).colorScheme.onSurfaceVariant.withValues(alpha: 0.7),
-                          fontSize: 11,
-                        ),
-                      ),
-                    ],
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      item.serviceName,
+                      style: Theme.of(context).textTheme.titleMedium
+                          ?.copyWith(fontWeight: FontWeight.w600),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
                   ),
+                  const SizedBox(width: 8),
+                  StatusPill(
+                    label: item.state.displayName,
+                    color: color,
+                    icon: iconForActivityState(item.state),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              Text(
+                item.title,
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  fontWeight: FontWeight.w500,
+                ),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+              const SizedBox(height: 4),
+              Text(
+                [
+                  formatRelativeTime(item.activityDate),
+                  if (item.durationLabel != null) item.durationLabel!,
+                ].join(' · '),
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant.withValues(alpha: 0.6),
+                  fontSize: 11,
                 ),
               ),
             ],
@@ -1281,7 +1242,7 @@ class _ActivityDetailsSheet extends StatelessWidget {
               item.serviceName,
               style: Theme.of(
                 context,
-              ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800),
+              ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w600),
             ),
             const SizedBox(height: 8),
             Text(
@@ -1371,7 +1332,7 @@ class _EmptyStateCard extends StatelessWidget {
               title,
               style: Theme.of(
                 context,
-              ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800),
+              ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w600),
             ),
             const SizedBox(height: 10),
             Text(
@@ -1401,18 +1362,16 @@ class _MetricChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
       decoration: BoxDecoration(
-        color: Theme.of(
-          context,
-        ).colorScheme.surfaceContainerHighest.withValues(alpha: 0.55),
-        borderRadius: BorderRadius.circular(10),
+        color: const Color(0xFFF0F0F2),
+        borderRadius: BorderRadius.circular(8),
       ),
       child: Text(
         label,
         style: Theme.of(
           context,
-        ).textTheme.labelSmall?.copyWith(fontWeight: FontWeight.w600),
+        ).textTheme.labelSmall?.copyWith(fontWeight: FontWeight.w500),
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
       ),
