@@ -672,31 +672,45 @@ class _ScopeSelector extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (controller.instances.length <= 1) return const SizedBox.shrink();
+    final scheme = Theme.of(context).colorScheme;
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
       child: Row(
         children: [
           ChoiceChip(
-            label: const Text('All'),
+            label: Text(
+              'All',
+              style: TextStyle(
+                color: controller.selectedInstanceId == null
+                    ? scheme.onPrimary
+                    : scheme.onSurface,
+              ),
+            ),
             selected: controller.selectedInstanceId == null,
             onSelected: (_) => unawaited(controller.selectInstance(null)),
           ),
           const SizedBox(width: 8),
           ...controller.instances.map(
-            (instance) => Padding(
-              padding: const EdgeInsets.only(right: 8),
-              child: ChoiceChip(
-                label: Text(instance.name),
-                selected: controller.selectedInstanceId == instance.id,
-                onSelected: (_) => unawaited(
-                  controller.selectInstance(
-                    controller.selectedInstanceId == instance.id
-                        ? null
-                        : instance.id,
+            (instance) {
+              final isSelected = controller.selectedInstanceId == instance.id;
+              return Padding(
+                padding: const EdgeInsets.only(right: 8),
+                child: ChoiceChip(
+                  label: Text(
+                    instance.name,
+                    style: TextStyle(
+                      color: isSelected ? scheme.onPrimary : scheme.onSurface,
+                    ),
+                  ),
+                  selected: isSelected,
+                  onSelected: (_) => unawaited(
+                    controller.selectInstance(
+                      isSelected ? null : instance.id,
+                    ),
                   ),
                 ),
-              ),
-            ),
+              );
+            },
           ),
         ],
       ),
@@ -792,15 +806,23 @@ class _ServiceFilterRow extends StatelessWidget {
       };
     }
 
+    final scheme = Theme.of(context).colorScheme;
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
       child: Row(
         children: ServiceFilter.values.map((filter) {
+          final isSelected = controller.serviceFilter == filter;
           return Padding(
             padding: const EdgeInsets.only(right: 8),
             child: FilterChip(
-              label: Text('${filter.label} (${countFor(filter)})'),
-              selected: controller.serviceFilter == filter,
+              label: Text(
+                '${filter.label} (${countFor(filter)})',
+                style: TextStyle(
+                  color: isSelected ? scheme.onPrimary : scheme.onSurface,
+                  fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
+                ),
+              ),
+              selected: isSelected,
               onSelected: (_) => controller.updateServiceFilter(filter),
             ),
           );
@@ -854,15 +876,23 @@ class _ActivityFilterRow extends StatelessWidget {
       };
     }
 
+    final scheme = Theme.of(context).colorScheme;
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
       child: Row(
         children: ActivityFilter.values.map((filter) {
+          final isSelected = controller.activityFilter == filter;
           return Padding(
             padding: const EdgeInsets.only(right: 8),
             child: FilterChip(
-              label: Text('${filter.label} (${countFor(filter)})'),
-              selected: controller.activityFilter == filter,
+              label: Text(
+                '${filter.label} (${countFor(filter)})',
+                style: TextStyle(
+                  color: isSelected ? scheme.onPrimary : scheme.onSurface,
+                  fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
+                ),
+              ),
+              selected: isSelected,
               onSelected: (_) => controller.updateActivityFilter(filter),
             ),
           );
@@ -1047,18 +1077,13 @@ class _InstanceSnapshotCard extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                 ),
               ],
-              const SizedBox(height: 10),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  _MetricChip(label: '${snapshot.entries.length} services'),
-                  _MetricChip(label: '${snapshot.deployingCount} deploying'),
-                  _MetricChip(
-                    label: '${snapshot.recentCount(recentWindow)} recent',
-                  ),
-                  _MetricChip(label: '${snapshot.failedCount} failed'),
-                ],
+              const SizedBox(height: 6),
+              Text(
+                '${snapshot.entries.length} services · ${snapshot.failedCount} failed · ${snapshot.deployingCount} deploying',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: scheme.onSurfaceVariant.withValues(alpha: 0.7),
+                  fontSize: 12,
+                ),
               ),
             ],
           ),

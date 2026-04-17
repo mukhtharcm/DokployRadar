@@ -59,6 +59,9 @@ class AppTheme {
         ),
         labelStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
         showCheckmark: false,
+        backgroundColor: const Color(0xFFF0F0F2),
+        selectedColor: scheme.primary,
+        side: BorderSide.none,
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
