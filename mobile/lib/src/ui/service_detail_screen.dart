@@ -78,23 +78,23 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Container(
-                          width: 40,
-                          height: 40,
+                          width: 52,
+                          height: 52,
                           decoration: BoxDecoration(
-                            color: color.withValues(alpha: 0.12),
-                            borderRadius: BorderRadius.circular(12),
+                            color: color.withValues(alpha: 0.14),
+                            borderRadius: BorderRadius.circular(18),
                           ),
-                          child: Icon(iconForServiceType(widget.service.serviceType), color: color, size: 20),
+                          child: Icon(iconForServiceType(widget.service.serviceType), color: color),
                         ),
-                        const SizedBox(width: 12),
+                        const SizedBox(width: 14),
                         Expanded(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
                                 widget.service.name,
-                                style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                                      fontWeight: FontWeight.w700,
+                                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                                      fontWeight: FontWeight.w800,
                                     ),
                               ),
                               if (widget.service.appName case final String appName when appName.isNotEmpty) ...[
@@ -278,8 +278,8 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
                                   Expanded(
                                     child: Text(
                                       record.title,
-                                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                                            fontWeight: FontWeight.w600,
+                                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                                            fontWeight: FontWeight.w800,
                                           ),
                                     ),
                                   ),
@@ -352,11 +352,9 @@ class _SectionTitle extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          title.toUpperCase(),
-          style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                fontWeight: FontWeight.w600,
-                letterSpacing: 1.2,
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
+          title,
+          style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                fontWeight: FontWeight.w800,
               ),
         ),
         const SizedBox(height: 4),
@@ -417,7 +415,7 @@ class _ChipSection extends StatelessWidget {
         Text(
           title,
           style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                fontWeight: FontWeight.w600,
+                fontWeight: FontWeight.w800,
               ),
         ),
         const SizedBox(height: 8),
@@ -439,16 +437,15 @@ class _InfoChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.45),
-        borderRadius: BorderRadius.circular(6),
+        color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.55),
+        borderRadius: BorderRadius.circular(10),
       ),
       child: Text(
         label,
-        style: Theme.of(context).textTheme.labelSmall?.copyWith(
-              fontWeight: FontWeight.w500,
-              fontSize: 11,
+        style: Theme.of(context).textTheme.labelLarge?.copyWith(
+              fontWeight: FontWeight.w700,
             ),
       ),
     );
@@ -519,8 +516,8 @@ class _InfoCard extends StatelessWidget {
           children: [
             Text(
               title,
-              style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                    fontWeight: FontWeight.w600,
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w800,
                   ),
             ),
             const SizedBox(height: 8),

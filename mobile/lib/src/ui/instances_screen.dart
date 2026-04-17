@@ -37,11 +37,9 @@ class InstancesScreen extends StatelessWidget {
         padding: const EdgeInsets.fromLTRB(20, 12, 20, 32),
         children: [
           Text(
-            'INSTANCES',
-            style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                  fontWeight: FontWeight.w600,
-                  letterSpacing: 1.2,
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+            'Dokploy instances',
+            style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                  fontWeight: FontWeight.w800,
                 ),
           ),
           const SizedBox(height: 12),
@@ -73,11 +71,9 @@ class InstancesScreen extends StatelessWidget {
             ),
           const SizedBox(height: 24),
           Text(
-            'MONITORING',
-            style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                  fontWeight: FontWeight.w600,
-                  letterSpacing: 1.2,
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+            'Monitoring',
+            style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                  fontWeight: FontWeight.w800,
                 ),
           ),
           const SizedBox(height: 12),
@@ -148,23 +144,22 @@ class _InstanceManagementCard extends StatelessWidget {
 
     return Card(
       child: Padding(
-        padding: const EdgeInsets.all(14),
+        padding: const EdgeInsets.all(18),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
               children: [
                 Container(
-                  width: 34,
-                  height: 34,
+                  width: 44,
+                  height: 44,
                   decoration: BoxDecoration(
-                    color: (hasIssue ? scheme.error : scheme.primary).withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(10),
+                    color: (hasIssue ? scheme.error : scheme.primary).withValues(alpha: 0.14),
+                    borderRadius: BorderRadius.circular(14),
                   ),
                   child: Icon(
                     hasIssue ? Icons.error_rounded : Icons.dns_rounded,
                     color: hasIssue ? scheme.error : scheme.primary,
-                    size: 18,
                   ),
                 ),
                 const SizedBox(width: 12),
@@ -174,15 +169,14 @@ class _InstanceManagementCard extends StatelessWidget {
                     children: [
                       Text(
                         instance.name,
-                        style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                              fontWeight: FontWeight.w600,
+                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                              fontWeight: FontWeight.w800,
                             ),
                       ),
                       Text(
                         instance.hostLabel,
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                               color: scheme.onSurfaceVariant,
-                              fontSize: 12,
                             ),
                       ),
                     ],
@@ -197,13 +191,16 @@ class _InstanceManagementCard extends StatelessWidget {
               ],
             ),
             if (snapshot != null) ...[
-              const SizedBox(height: 10),
-              Text(
-                '${snapshot!.entries.length} services · ${snapshot!.deployingCount} deploying · ${snapshot!.recentCount(recentWindow)} recent · ${snapshot!.failedCount} failed',
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: scheme.onSurfaceVariant,
-                      fontSize: 12,
-                    ),
+              const SizedBox(height: 14),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  _MiniInfoChip(label: '${snapshot!.entries.length} services'),
+                  _MiniInfoChip(label: '${snapshot!.deployingCount} deploying'),
+                  _MiniInfoChip(label: '${snapshot!.recentCount(recentWindow)} recent'),
+                  _MiniInfoChip(label: '${snapshot!.failedCount} failed'),
+                ],
               ),
             ],
             if (snapshot?.errorMessage case final String message when message.isNotEmpty) ...[
@@ -299,8 +296,8 @@ class _DropdownSetting extends StatelessWidget {
       children: [
         Text(
           title,
-          style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                fontWeight: FontWeight.w600,
+          style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.w800,
               ),
         ),
         const SizedBox(height: 4),
@@ -347,14 +344,14 @@ class _SettingsEmptyState extends StatelessWidget {
           children: [
             Text(
               'No Dokploy instances yet',
-              style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w700,
+              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                    fontWeight: FontWeight.w800,
                   ),
             ),
-            const SizedBox(height: 6),
+            const SizedBox(height: 8),
             Text(
               'Add one or more Dokploy instances to start monitoring deployments from mobile.',
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+              style: Theme.of(context).textTheme.bodyLarge?.copyWith(
                     color: Theme.of(context).colorScheme.onSurfaceVariant,
                   ),
             ),
@@ -366,6 +363,29 @@ class _SettingsEmptyState extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _MiniInfoChip extends StatelessWidget {
+  const _MiniInfoChip({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.55),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Text(
+        label,
+        style: Theme.of(context).textTheme.labelLarge?.copyWith(
+              fontWeight: FontWeight.w700,
+            ),
       ),
     );
   }

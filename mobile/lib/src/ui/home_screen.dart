@@ -42,6 +42,9 @@ class _HomeScreenState extends State<HomeScreen> {
     final selectedInstance = controller.selectedInstance;
     final subtitle = selectedInstance?.name ?? 'All instances';
     final initializationError = controller.initializationError;
+    final lastRefreshLabel = controller.lastRefresh == null
+        ? 'Waiting for first refresh'
+        : 'Updated ${formatRelativeTime(controller.lastRefresh)}';
 
     if (!controller.isInitialized) {
       return const Scaffold(
@@ -93,6 +96,7 @@ class _HomeScreenState extends State<HomeScreen> {
         _DashboardTab.overview => _OverviewTab(
           controller: controller,
           initializationError: initializationError,
+          lastRefreshLabel: lastRefreshLabel,
           onOpenInstances: _openInstances,
           onOpenService: _openService,
           onFocusInstance: (instanceId) {
@@ -165,6 +169,7 @@ class _OverviewTab extends StatelessWidget {
   const _OverviewTab({
     required this.controller,
     required this.initializationError,
+    required this.lastRefreshLabel,
     required this.onOpenInstances,
     required this.onOpenService,
     required this.onFocusInstance,
@@ -172,6 +177,7 @@ class _OverviewTab extends StatelessWidget {
 
   final DashboardController controller;
   final String? initializationError;
+  final String lastRefreshLabel;
   final VoidCallback onOpenInstances;
   final void Function(
     MonitoredService service,
@@ -191,6 +197,13 @@ class _OverviewTab extends StatelessWidget {
         physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.fromLTRB(20, 12, 20, 32),
         children: [
+          _StatusHeader(
+            subtitle: lastRefreshLabel,
+            actionLabel: controller.instances.isEmpty
+                ? 'Add instance'
+                : 'Manage',
+            onAction: onOpenInstances,
+          ),
           if (initializationError case final String message
               when message.isNotEmpty) ...[
             const SizedBox(height: 16),
@@ -218,58 +231,59 @@ class _OverviewTab extends StatelessWidget {
             )
           else ...[
             Text(
-              'SNAPSHOT',
-              style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                fontWeight: FontWeight.w600,
-                letterSpacing: 1.2,
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
-              ),
+              'Snapshot',
+              style: Theme.of(
+                context,
+              ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
             ),
-            const SizedBox(height: 14),
-            Row(
-              children: [
-                Expanded(
-                  child: SummaryCard(
+            const SizedBox(height: 12),
+            SizedBox(
+              height: 130,
+              child: ListView(
+                scrollDirection: Axis.horizontal,
+                clipBehavior: Clip.none,
+                children: [
+                  SummaryCard(
                     label: 'Deploying',
                     value: '${controller.deployingCount}',
                     icon: Icons.sync_rounded,
                     color: scheme.primary,
+                    caption: 'Currently active',
                   ),
-                ),
-                Expanded(
-                  child: SummaryCard(
+                  const SizedBox(width: 10),
+                  SummaryCard(
                     label: 'Recent',
                     value: '${controller.recentCount}',
                     icon: Icons.check_circle_rounded,
                     color: Colors.green.shade600,
+                    caption: 'Completed lately',
                   ),
-                ),
-                Expanded(
-                  child: SummaryCard(
+                  const SizedBox(width: 10),
+                  SummaryCard(
                     label: 'Failed',
                     value: '${controller.failedCount}',
                     icon: Icons.error_rounded,
                     color: scheme.error,
+                    caption: 'Needs attention',
                   ),
-                ),
-                Expanded(
-                  child: SummaryCard(
+                  const SizedBox(width: 10),
+                  SummaryCard(
                     label: 'Queued',
                     value: '${controller.queuedCount}',
                     icon: Icons.schedule_rounded,
                     color: Colors.orange.shade700,
+                    caption:
+                        '${controller.activeInstancesCount} instance(s)',
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
             const SizedBox(height: 24),
             Text(
-              'INSTANCES',
-              style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                fontWeight: FontWeight.w600,
-                letterSpacing: 1.2,
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
-              ),
+              'Instances',
+              style: Theme.of(
+                context,
+              ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
             ),
             const SizedBox(height: 12),
             ...controller.snapshots.map(
@@ -284,12 +298,10 @@ class _OverviewTab extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             Text(
-              'RECENT HIGHLIGHTS',
-              style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                fontWeight: FontWeight.w600,
-                letterSpacing: 1.2,
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
-              ),
+              'Recent service highlights',
+              style: Theme.of(
+                context,
+              ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
             ),
             const SizedBox(height: 12),
             ...controller.allServices
@@ -409,10 +421,9 @@ class _ServicesTab extends StatelessWidget {
           else ...[
             Text(
               '${services.length} service${services.length == 1 ? '' : 's'}',
-              style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                fontWeight: FontWeight.w600,
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
-              ),
+              style: Theme.of(
+                context,
+              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
             ),
             const SizedBox(height: 12),
             ...services.map(
@@ -530,10 +541,9 @@ class _ActivityTab extends StatelessWidget {
           else ...[
             Text(
               '${items.length} event${items.length == 1 ? '' : 's'}',
-              style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                fontWeight: FontWeight.w600,
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
-              ),
+              style: Theme.of(
+                context,
+              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
             ),
             const SizedBox(height: 12),
             ...items.map(
@@ -581,6 +591,63 @@ class _ActivityTab extends StatelessWidget {
   }
 }
 
+class _StatusHeader extends StatelessWidget {
+  const _StatusHeader({
+    required this.subtitle,
+    required this.actionLabel,
+    required this.onAction,
+  });
+
+  final String subtitle;
+  final String actionLabel;
+  final VoidCallback onAction;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        children: [
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: scheme.primary.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(Icons.radar_rounded, color: scheme.primary, size: 22),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Dashboard',
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                Text(
+                  subtitle,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: scheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          TextButton(
+            onPressed: onAction,
+            child: Text(actionLabel),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _ScopeSelector extends StatelessWidget {
   const _ScopeSelector({required this.controller});
 
@@ -592,12 +659,10 @@ class _ScopeSelector extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          'SCOPE',
-          style: Theme.of(context).textTheme.labelMedium?.copyWith(
-            fontWeight: FontWeight.w600,
-            letterSpacing: 1.2,
-            color: Theme.of(context).colorScheme.onSurfaceVariant,
-          ),
+          'Scope',
+          style: Theme.of(
+            context,
+          ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
         ),
         const SizedBox(height: 10),
         Wrap(
@@ -812,7 +877,7 @@ class _IssueBanner extends StatelessWidget {
                   child: Text(
                     'Instance issues',
                     style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w600,
+                      fontWeight: FontWeight.w800,
                     ),
                   ),
                 ),
@@ -865,7 +930,7 @@ class _InitializationIssueBanner extends StatelessWidget {
                   child: Text(
                     'Saved data issue',
                     style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w600,
+                      fontWeight: FontWeight.w800,
                     ),
                   ),
                 ),
@@ -925,71 +990,70 @@ class _InstanceSnapshotCard extends StatelessWidget {
 
     return Card(
       child: InkWell(
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(16),
         onTap: onTap,
         child: Padding(
-          padding: const EdgeInsets.all(14),
-          child: Row(
+          padding: const EdgeInsets.all(18),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Container(
-                width: 34,
-                height: 34,
-                decoration: BoxDecoration(
-                  color: statusColor.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Icon(Icons.dns_rounded, color: statusColor, size: 18),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
+              Row(
+                children: [
+                  Container(
+                    width: 42,
+                    height: 42,
+                    decoration: BoxDecoration(
+                      color: statusColor.withValues(alpha: 0.14),
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: Icon(Icons.dns_rounded, color: statusColor),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Expanded(
-                          child: Text(
-                            snapshot.instance.name,
-                            style: Theme.of(context).textTheme.titleSmall
-                                ?.copyWith(fontWeight: FontWeight.w600),
-                          ),
+                        Text(
+                          snapshot.instance.name,
+                          style: Theme.of(context).textTheme.titleMedium
+                              ?.copyWith(fontWeight: FontWeight.w800),
                         ),
-                        StatusPill(
-                          label: statusLabel,
-                          color: statusColor,
-                          icon: Icons.circle_rounded,
+                        Text(
+                          snapshot.instance.hostLabel,
+                          style: Theme.of(context).textTheme.bodyMedium
+                              ?.copyWith(color: scheme.onSurfaceVariant),
                         ),
                       ],
                     ),
-                    const SizedBox(height: 3),
-                    Text(
-                      '${snapshot.entries.length} services · ${snapshot.deployingCount} deploying · ${snapshot.failedCount} failed',
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: scheme.onSurfaceVariant,
-                        fontSize: 12,
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    if (snapshot.errorMessage != null) ...[
-                      const SizedBox(height: 4),
-                      Text(
-                        snapshot.errorMessage!,
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: scheme.error,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ],
-                  ],
-                ),
+                  ),
+                  StatusPill(
+                    label: statusLabel,
+                    color: statusColor,
+                    icon: Icons.circle_rounded,
+                  ),
+                ],
               ),
-              const SizedBox(width: 4),
-              Icon(
-                Icons.chevron_right_rounded,
-                size: 18,
-                color: scheme.onSurfaceVariant.withValues(alpha: 0.5),
+              if (snapshot.errorMessage != null) ...[
+                const SizedBox(height: 12),
+                Text(
+                  snapshot.errorMessage!,
+                  style: Theme.of(
+                    context,
+                  ).textTheme.bodyMedium?.copyWith(color: scheme.error),
+                ),
+              ],
+              const SizedBox(height: 14),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  _MetricChip(label: '${snapshot.entries.length} services'),
+                  _MetricChip(label: '${snapshot.deployingCount} deploying'),
+                  _MetricChip(
+                    label: '${snapshot.recentCount(recentWindow)} recent',
+                  ),
+                  _MetricChip(label: '${snapshot.failedCount} failed'),
+                ],
               ),
             ],
           ),
@@ -1016,45 +1080,62 @@ class _ServiceCard extends StatelessWidget {
     final group = service.group(now, recentWindow);
     final color = colorForServiceGroup(group, Theme.of(context).colorScheme);
 
-    final scheme = Theme.of(context).colorScheme;
     return Card(
       child: InkWell(
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(16),
         onTap: onTap,
         child: Padding(
-          padding: const EdgeInsets.all(14),
+          padding: const EdgeInsets.all(18),
           child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Container(
-                width: 34,
-                height: 34,
+                width: 46,
+                height: 46,
                 decoration: BoxDecoration(
-                  color: color.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(10),
+                  color: color.withValues(alpha: 0.14),
+                  borderRadius: BorderRadius.circular(16),
                 ),
                 child: Icon(
                   iconForServiceType(service.serviceType),
                   color: color,
-                  size: 18,
                 ),
               ),
-              const SizedBox(width: 12),
+              const SizedBox(width: 14),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Expanded(
-                          child: Text(
-                            service.name,
-                            style: Theme.of(context).textTheme.titleSmall
-                                ?.copyWith(fontWeight: FontWeight.w600),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                service.name,
+                                style: Theme.of(context).textTheme.titleMedium
+                                    ?.copyWith(fontWeight: FontWeight.w800),
+                              ),
+                              if (service.appName case final String appName
+                                  when appName.isNotEmpty)
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 2),
+                                  child: Text(
+                                    appName,
+                                    style: Theme.of(context).textTheme.bodySmall
+                                        ?.copyWith(
+                                          color: Theme.of(
+                                            context,
+                                          ).colorScheme.onSurfaceVariant,
+                                        ),
+                                  ),
+                                ),
+                            ],
                           ),
                         ),
-                        const SizedBox(width: 8),
+                        const SizedBox(width: 12),
                         StatusPill(
                           label: service.statusLabel(now, recentWindow),
                           color: color,
@@ -1062,26 +1143,24 @@ class _ServiceCard extends StatelessWidget {
                         ),
                       ],
                     ),
-                    const SizedBox(height: 3),
+                    const SizedBox(height: 8),
                     Text(
-                      '${service.projectName} / ${service.environmentName}',
+                      '${service.serviceType.displayName} · ${service.instanceName} · ${service.projectName} · ${service.environmentName}',
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: scheme.onSurfaceVariant,
-                        fontSize: 12,
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
                       ),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
-                    if (service.lastActivityDate != null) ...[
-                      const SizedBox(height: 2),
-                      Text(
-                        formatRelativeTime(service.lastActivityDate),
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: scheme.onSurfaceVariant.withValues(alpha: 0.6),
-                          fontSize: 11,
-                        ),
+                    const SizedBox(height: 10),
+                    Text(
+                      service.lastActivityDate == null
+                          ? 'No deployment history yet'
+                          : 'Last activity ${formatRelativeTime(service.lastActivityDate)}',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
                       ),
-                    ],
+                    ),
                   ],
                 ),
               ),
@@ -1105,50 +1184,40 @@ class _ActivityCard extends StatelessWidget {
       item.state,
       Theme.of(context).colorScheme,
     );
-    final scheme = Theme.of(context).colorScheme;
-    final timeInfo = [
-      formatRelativeTime(item.activityDate),
-      if (item.durationLabel != null) item.durationLabel!,
-    ].join(' · ');
-
     return Card(
       child: InkWell(
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(16),
         onTap: onTap,
         child: Padding(
-          padding: const EdgeInsets.all(14),
+          padding: const EdgeInsets.all(18),
           child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Container(
-                width: 34,
-                height: 34,
+                width: 46,
+                height: 46,
                 decoration: BoxDecoration(
-                  color: color.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(10),
+                  color: color.withValues(alpha: 0.14),
+                  borderRadius: BorderRadius.circular(16),
                 ),
-                child: Icon(
-                  iconForActivityState(item.state),
-                  color: color,
-                  size: 18,
-                ),
+                child: Icon(iconForActivityState(item.state), color: color),
               ),
-              const SizedBox(width: 12),
+              const SizedBox(width: 14),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Expanded(
                           child: Text(
                             item.serviceName,
-                            style: Theme.of(context).textTheme.titleSmall
-                                ?.copyWith(fontWeight: FontWeight.w600),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
+                            style: Theme.of(context).textTheme.titleMedium
+                                ?.copyWith(fontWeight: FontWeight.w800),
                           ),
                         ),
-                        const SizedBox(width: 8),
+                        const SizedBox(width: 12),
                         StatusPill(
                           label: item.state.displayName,
                           color: color,
@@ -1156,23 +1225,45 @@ class _ActivityCard extends StatelessWidget {
                         ),
                       ],
                     ),
-                    const SizedBox(height: 3),
+                    const SizedBox(height: 8),
                     Text(
                       item.title,
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        fontWeight: FontWeight.w500,
-                        fontSize: 12,
+                      style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                        fontWeight: FontWeight.w600,
                       ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
                     ),
-                    const SizedBox(height: 2),
+                    const SizedBox(height: 6),
                     Text(
-                      timeInfo,
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: scheme.onSurfaceVariant.withValues(alpha: 0.6),
-                        fontSize: 11,
+                      item.subtitle,
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
                       ),
+                    ),
+                    const SizedBox(height: 10),
+                    Wrap(
+                      spacing: 10,
+                      runSpacing: 6,
+                      children: [
+                        Text(
+                          formatRelativeTime(item.activityDate),
+                          style: Theme.of(context).textTheme.bodySmall
+                              ?.copyWith(
+                                color: Theme.of(
+                                  context,
+                                ).colorScheme.onSurfaceVariant,
+                              ),
+                        ),
+                        if (item.durationLabel != null)
+                          Text(
+                            item.durationLabel!,
+                            style: Theme.of(context).textTheme.bodySmall
+                                ?.copyWith(
+                                  color: Theme.of(
+                                    context,
+                                  ).colorScheme.onSurfaceVariant,
+                                ),
+                          ),
+                      ],
                     ),
                   ],
                 ),
@@ -1219,7 +1310,7 @@ class _ActivityDetailsSheet extends StatelessWidget {
               item.serviceName,
               style: Theme.of(
                 context,
-              ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w700),
+              ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800),
             ),
             const SizedBox(height: 8),
             Text(
@@ -1291,37 +1382,37 @@ class _EmptyStateCard extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     return Card(
       child: Padding(
-        padding: const EdgeInsets.all(20),
+        padding: const EdgeInsets.all(24),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Container(
-              width: 40,
-              height: 40,
+              width: 52,
+              height: 52,
               decoration: BoxDecoration(
-                color: scheme.primary.withValues(alpha: 0.10),
-                borderRadius: BorderRadius.circular(12),
+                color: scheme.primary.withValues(alpha: 0.14),
+                borderRadius: BorderRadius.circular(18),
               ),
-              child: Icon(icon, color: scheme.primary, size: 20),
+              child: Icon(icon, color: scheme.primary),
             ),
-            const SizedBox(height: 14),
+            const SizedBox(height: 18),
             Text(
               title,
-              style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.w700,
-              ),
+              style: Theme.of(
+                context,
+              ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800),
             ),
-            const SizedBox(height: 6),
+            const SizedBox(height: 10),
             Text(
               description,
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: scheme.onSurfaceVariant,
-              ),
+              style: Theme.of(
+                context,
+              ).textTheme.bodyLarge?.copyWith(color: scheme.onSurfaceVariant),
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 18),
             FilledButton.icon(
               onPressed: onPrimaryPressed,
-              icon: const Icon(Icons.add_rounded, size: 18),
+              icon: const Icon(Icons.add_rounded),
               label: Text(primaryLabel),
             ),
           ],
@@ -1339,20 +1430,18 @@ class _MetricChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
-        color: Theme.of(context)
-            .colorScheme
-            .surfaceContainerHighest
-            .withValues(alpha: 0.45),
-        borderRadius: BorderRadius.circular(6),
+        color: Theme.of(
+          context,
+        ).colorScheme.surfaceContainerHighest.withValues(alpha: 0.55),
+        borderRadius: BorderRadius.circular(10),
       ),
       child: Text(
         label,
-        style: Theme.of(context).textTheme.labelSmall?.copyWith(
-          fontWeight: FontWeight.w500,
-          fontSize: 11,
-        ),
+        style: Theme.of(
+          context,
+        ).textTheme.labelSmall?.copyWith(fontWeight: FontWeight.w600),
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
       ),
