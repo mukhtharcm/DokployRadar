@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 class AppTheme {
   AppTheme._();
 
-  static const Color _seed = Color(0xFF6366F1);
+  static const Color _seed = Color(0xFF0D9488);
 
   static ThemeData light() {
     final scheme = ColorScheme.fromSeed(
@@ -25,23 +25,21 @@ class AppTheme {
     return ThemeData(
       useMaterial3: true,
       colorScheme: scheme,
-      scaffoldBackgroundColor: scheme.surface,
+      scaffoldBackgroundColor: scheme.surfaceContainerLowest,
       appBarTheme: AppBarTheme(
-        backgroundColor: scheme.surface,
+        backgroundColor: scheme.surfaceContainerLowest,
         foregroundColor: scheme.onSurface,
         centerTitle: false,
-        scrolledUnderElevation: 0,
+        scrolledUnderElevation: 0.5,
       ),
       cardTheme: CardThemeData(
-        elevation: 0,
+        elevation: 1,
         margin: EdgeInsets.zero,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16),
-          side: BorderSide(
-            color: scheme.outlineVariant.withValues(alpha: 0.35),
-          ),
+          borderRadius: BorderRadius.circular(14),
         ),
-        color: scheme.surfaceContainerLow,
+        color: scheme.surface,
+        shadowColor: scheme.shadow.withValues(alpha: 0.10),
       ),
       chipTheme: ChipThemeData(
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -77,7 +75,7 @@ class AppTheme {
       navigationBarTheme: NavigationBarThemeData(
         elevation: 0,
         height: 64,
-        backgroundColor: scheme.surface,
+        backgroundColor: scheme.surfaceContainerLowest,
         surfaceTintColor: Colors.transparent,
         indicatorColor: scheme.primaryContainer,
         labelTextStyle: WidgetStateProperty.resolveWith((states) {
@@ -108,7 +106,11 @@ class AppTheme {
         shape: const RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
         ),
-        backgroundColor: scheme.surfaceContainerLow,
+        backgroundColor: scheme.surface,
+      ),
+      dividerTheme: DividerThemeData(
+        thickness: 0.5,
+        color: scheme.outlineVariant.withValues(alpha: 0.3),
       ),
     );
   }

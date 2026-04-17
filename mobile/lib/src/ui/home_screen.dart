@@ -8,7 +8,6 @@ import '../models/dokploy_models.dart';
 import '../services/dashboard_controller.dart';
 import '../utils/formatters.dart';
 import '../widgets/status_pill.dart';
-import '../widgets/summary_card.dart';
 import 'instances_screen.dart';
 import 'service_detail_screen.dart';
 
@@ -230,50 +229,68 @@ class _OverviewTab extends StatelessWidget {
               onPrimaryPressed: onOpenInstances,
             )
           else ...[
-            Text(
-              'Snapshot',
-              style: Theme.of(
-                context,
-              ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
-            ),
-            const SizedBox(height: 12),
-            SizedBox(
-              height: 130,
-              child: ListView(
-                scrollDirection: Axis.horizontal,
-                clipBehavior: Clip.none,
+            // Gradient stats banner
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [
+                    scheme.primary,
+                    scheme.primary.withValues(alpha: 0.75),
+                  ],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                borderRadius: BorderRadius.circular(16),
+                boxShadow: [
+                  BoxShadow(
+                    color: scheme.primary.withValues(alpha: 0.20),
+                    blurRadius: 12,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  SummaryCard(
-                    label: 'Deploying',
-                    value: '${controller.deployingCount}',
-                    icon: Icons.sync_rounded,
-                    color: scheme.primary,
-                    caption: 'Currently active',
+                  Row(
+                    children: [
+                      Icon(
+                        Icons.radar_rounded,
+                        color: Colors.white.withValues(alpha: 0.7),
+                        size: 16,
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        '${controller.activeInstancesCount} instance${controller.activeInstancesCount == 1 ? '' : 's'} monitored',
+                        style: TextStyle(
+                          color: Colors.white.withValues(alpha: 0.8),
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
                   ),
-                  const SizedBox(width: 10),
-                  SummaryCard(
-                    label: 'Recent',
-                    value: '${controller.recentCount}',
-                    icon: Icons.check_circle_rounded,
-                    color: Colors.green.shade600,
-                    caption: 'Completed lately',
-                  ),
-                  const SizedBox(width: 10),
-                  SummaryCard(
-                    label: 'Failed',
-                    value: '${controller.failedCount}',
-                    icon: Icons.error_rounded,
-                    color: scheme.error,
-                    caption: 'Needs attention',
-                  ),
-                  const SizedBox(width: 10),
-                  SummaryCard(
-                    label: 'Queued',
-                    value: '${controller.queuedCount}',
-                    icon: Icons.schedule_rounded,
-                    color: Colors.orange.shade700,
-                    caption:
-                        '${controller.activeInstancesCount} instance(s)',
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      _BannerStat(
+                        value: '${controller.deployingCount}',
+                        label: 'Deploying',
+                      ),
+                      _BannerStat(
+                        value: '${controller.recentCount}',
+                        label: 'Recent',
+                      ),
+                      _BannerStat(
+                        value: '${controller.failedCount}',
+                        label: 'Failed',
+                      ),
+                      _BannerStat(
+                        value: '${controller.queuedCount}',
+                        label: 'Queued',
+                      ),
+                    ],
                   ),
                 ],
               ),
@@ -604,43 +621,56 @@ class _StatusHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Row(
         children: [
-          Container(
-            width: 40,
-            height: 40,
-            decoration: BoxDecoration(
-              color: scheme.primary.withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Icon(Icons.radar_rounded, color: scheme.primary, size: 22),
-          ),
-          const SizedBox(width: 12),
           Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Dashboard',
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                Text(
-                  subtitle,
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: scheme.onSurfaceVariant,
-                  ),
-                ),
-              ],
+            child: Text(
+              subtitle,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
             ),
           ),
           TextButton(
             onPressed: onAction,
             child: Text(actionLabel),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _BannerStat extends StatelessWidget {
+  const _BannerStat({required this.value, required this.label});
+
+  final String value;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: Column(
+        children: [
+          Text(
+            value,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 28,
+              fontWeight: FontWeight.w700,
+              height: 1.1,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            label,
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: 0.8),
+              fontSize: 11,
+              fontWeight: FontWeight.w500,
+            ),
           ),
         ],
       ),
@@ -989,71 +1019,67 @@ class _InstanceSnapshotCard extends StatelessWidget {
         : 'Healthy';
 
     return Card(
+      clipBehavior: Clip.antiAlias,
       child: InkWell(
-        borderRadius: BorderRadius.circular(16),
         onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.all(18),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+        child: IntrinsicHeight(
+          child: Row(
             children: [
-              Row(
-                children: [
-                  Container(
-                    width: 42,
-                    height: 42,
-                    decoration: BoxDecoration(
-                      color: statusColor.withValues(alpha: 0.14),
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                    child: Icon(Icons.dns_rounded, color: statusColor),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
+              Container(width: 4, color: statusColor),
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              snapshot.instance.name,
+                              style: Theme.of(context).textTheme.titleMedium
+                                  ?.copyWith(fontWeight: FontWeight.w700),
+                            ),
+                          ),
+                          StatusPill(
+                            label: statusLabel,
+                            color: statusColor,
+                            icon: Icons.circle_rounded,
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        snapshot.instance.hostLabel,
+                        style: Theme.of(context).textTheme.bodySmall
+                            ?.copyWith(color: scheme.onSurfaceVariant),
+                      ),
+                      if (snapshot.errorMessage != null) ...[
+                        const SizedBox(height: 8),
                         Text(
-                          snapshot.instance.name,
-                          style: Theme.of(context).textTheme.titleMedium
-                              ?.copyWith(fontWeight: FontWeight.w800),
-                        ),
-                        Text(
-                          snapshot.instance.hostLabel,
-                          style: Theme.of(context).textTheme.bodyMedium
-                              ?.copyWith(color: scheme.onSurfaceVariant),
+                          snapshot.errorMessage!,
+                          style: Theme.of(context).textTheme.bodySmall
+                              ?.copyWith(color: scheme.error),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
                         ),
                       ],
-                    ),
+                      const SizedBox(height: 10),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          _MetricChip(label: '${snapshot.entries.length} services'),
+                          _MetricChip(label: '${snapshot.deployingCount} deploying'),
+                          _MetricChip(
+                            label: '${snapshot.recentCount(recentWindow)} recent',
+                          ),
+                          _MetricChip(label: '${snapshot.failedCount} failed'),
+                        ],
+                      ),
+                    ],
                   ),
-                  StatusPill(
-                    label: statusLabel,
-                    color: statusColor,
-                    icon: Icons.circle_rounded,
-                  ),
-                ],
-              ),
-              if (snapshot.errorMessage != null) ...[
-                const SizedBox(height: 12),
-                Text(
-                  snapshot.errorMessage!,
-                  style: Theme.of(
-                    context,
-                  ).textTheme.bodyMedium?.copyWith(color: scheme.error),
                 ),
-              ],
-              const SizedBox(height: 14),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  _MetricChip(label: '${snapshot.entries.length} services'),
-                  _MetricChip(label: '${snapshot.deployingCount} deploying'),
-                  _MetricChip(
-                    label: '${snapshot.recentCount(recentWindow)} recent',
-                  ),
-                  _MetricChip(label: '${snapshot.failedCount} failed'),
-                ],
               ),
             ],
           ),
@@ -1081,87 +1107,59 @@ class _ServiceCard extends StatelessWidget {
     final color = colorForServiceGroup(group, Theme.of(context).colorScheme);
 
     return Card(
+      clipBehavior: Clip.antiAlias,
       child: InkWell(
-        borderRadius: BorderRadius.circular(16),
         onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.all(18),
+        child: IntrinsicHeight(
           child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Container(
-                width: 46,
-                height: 46,
-                decoration: BoxDecoration(
-                  color: color.withValues(alpha: 0.14),
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: Icon(
-                  iconForServiceType(service.serviceType),
-                  color: color,
-                ),
-              ),
-              const SizedBox(width: 14),
+              Container(width: 4, color: color),
               Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                service.name,
-                                style: Theme.of(context).textTheme.titleMedium
-                                    ?.copyWith(fontWeight: FontWeight.w800),
-                              ),
-                              if (service.appName case final String appName
-                                  when appName.isNotEmpty)
-                                Padding(
-                                  padding: const EdgeInsets.only(top: 2),
-                                  child: Text(
-                                    appName,
-                                    style: Theme.of(context).textTheme.bodySmall
-                                        ?.copyWith(
-                                          color: Theme.of(
-                                            context,
-                                          ).colorScheme.onSurfaceVariant,
-                                        ),
-                                  ),
-                                ),
-                            ],
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              service.name,
+                              style: Theme.of(context).textTheme.titleMedium
+                                  ?.copyWith(fontWeight: FontWeight.w700),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          StatusPill(
+                            label: service.statusLabel(now, recentWindow),
+                            color: color,
+                            icon: iconForServiceGroup(group),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        '${service.projectName} / ${service.environmentName}',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      if (service.lastActivityDate != null) ...[
+                        const SizedBox(height: 2),
+                        Text(
+                          'Last activity ${formatRelativeTime(service.lastActivityDate)}',
+                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: Theme.of(context).colorScheme.onSurfaceVariant.withValues(alpha: 0.7),
+                            fontSize: 11,
                           ),
                         ),
-                        const SizedBox(width: 12),
-                        StatusPill(
-                          label: service.statusLabel(now, recentWindow),
-                          color: color,
-                          icon: iconForServiceGroup(group),
-                        ),
                       ],
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      '${service.serviceType.displayName} · ${service.instanceName} · ${service.projectName} · ${service.environmentName}',
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: Theme.of(context).colorScheme.onSurfaceVariant,
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    const SizedBox(height: 10),
-                    Text(
-                      service.lastActivityDate == null
-                          ? 'No deployment history yet'
-                          : 'Last activity ${formatRelativeTime(service.lastActivityDate)}',
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: Theme.of(context).colorScheme.onSurfaceVariant,
-                      ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ],
@@ -1185,87 +1183,60 @@ class _ActivityCard extends StatelessWidget {
       Theme.of(context).colorScheme,
     );
     return Card(
+      clipBehavior: Clip.antiAlias,
       child: InkWell(
-        borderRadius: BorderRadius.circular(16),
         onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.all(18),
+        child: IntrinsicHeight(
           child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Container(
-                width: 46,
-                height: 46,
-                decoration: BoxDecoration(
-                  color: color.withValues(alpha: 0.14),
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: Icon(iconForActivityState(item.state), color: color),
-              ),
-              const SizedBox(width: 14),
+              Container(width: 4, color: color),
               Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Expanded(
-                          child: Text(
-                            item.serviceName,
-                            style: Theme.of(context).textTheme.titleMedium
-                                ?.copyWith(fontWeight: FontWeight.w800),
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              item.serviceName,
+                              style: Theme.of(context).textTheme.titleMedium
+                                  ?.copyWith(fontWeight: FontWeight.w700),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
                           ),
-                        ),
-                        const SizedBox(width: 12),
-                        StatusPill(
-                          label: item.state.displayName,
-                          color: color,
-                          icon: iconForActivityState(item.state),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      item.title,
-                      style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                        fontWeight: FontWeight.w600,
+                          const SizedBox(width: 8),
+                          StatusPill(
+                            label: item.state.displayName,
+                            color: color,
+                            icon: iconForActivityState(item.state),
+                          ),
+                        ],
                       ),
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      item.subtitle,
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      const SizedBox(height: 4),
+                      Text(
+                        item.title,
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          fontWeight: FontWeight.w500,
+                        ),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
                       ),
-                    ),
-                    const SizedBox(height: 10),
-                    Wrap(
-                      spacing: 10,
-                      runSpacing: 6,
-                      children: [
-                        Text(
+                      const SizedBox(height: 4),
+                      Text(
+                        [
                           formatRelativeTime(item.activityDate),
-                          style: Theme.of(context).textTheme.bodySmall
-                              ?.copyWith(
-                                color: Theme.of(
-                                  context,
-                                ).colorScheme.onSurfaceVariant,
-                              ),
+                          if (item.durationLabel != null) item.durationLabel!,
+                        ].join(' · '),
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: Theme.of(context).colorScheme.onSurfaceVariant.withValues(alpha: 0.7),
+                          fontSize: 11,
                         ),
-                        if (item.durationLabel != null)
-                          Text(
-                            item.durationLabel!,
-                            style: Theme.of(context).textTheme.bodySmall
-                                ?.copyWith(
-                                  color: Theme.of(
-                                    context,
-                                  ).colorScheme.onSurfaceVariant,
-                                ),
-                          ),
-                      ],
-                    ),
-                  ],
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ],

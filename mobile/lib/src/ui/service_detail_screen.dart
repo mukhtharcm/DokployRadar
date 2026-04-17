@@ -69,69 +69,62 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
           padding: const EdgeInsets.fromLTRB(20, 12, 20, 32),
           children: [
             Card(
-              child: Padding(
-                padding: const EdgeInsets.all(20),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+              clipBehavior: Clip.antiAlias,
+              child: IntrinsicHeight(
+                child: Row(
                   children: [
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Container(
-                          width: 52,
-                          height: 52,
-                          decoration: BoxDecoration(
-                            color: color.withValues(alpha: 0.14),
-                            borderRadius: BorderRadius.circular(18),
-                          ),
-                          child: Icon(iconForServiceType(widget.service.serviceType), color: color),
-                        ),
-                        const SizedBox(width: 14),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                widget.service.name,
-                                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                                      fontWeight: FontWeight.w800,
-                                    ),
-                              ),
-                              if (widget.service.appName case final String appName when appName.isNotEmpty) ...[
-                                const SizedBox(height: 4),
-                                Text(
-                                  appName,
-                                  style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                                        color: Theme.of(context).colorScheme.onSurfaceVariant,
-                                      ),
+                    Container(width: 4, color: color),
+                    Expanded(
+                      child: Padding(
+                        padding: const EdgeInsets.all(18),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    widget.service.name,
+                                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                  ),
+                                ),
+                                StatusPill(
+                                  label: widget.service.statusLabel(DateTime.now(), widget.recentWindow),
+                                  color: color,
+                                  icon: iconForServiceGroup(group),
                                 ),
                               ],
+                            ),
+                            if (widget.service.appName case final String appName when appName.isNotEmpty) ...[
+                              const SizedBox(height: 4),
+                              Text(
+                                appName,
+                                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                                    ),
+                              ),
                             ],
-                          ),
+                            const SizedBox(height: 14),
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              children: [
+                                _InfoChip(label: widget.service.serviceType.displayName),
+                                _InfoChip(label: widget.service.instanceName),
+                                _InfoChip(label: widget.service.projectName),
+                                _InfoChip(label: widget.service.environmentName),
+                                _InfoChip(
+                                  label: widget.service.lastActivityDate == null
+                                      ? 'No recent deployment'
+                                      : 'Last activity ${formatRelativeTime(widget.service.lastActivityDate)}',
+                                ),
+                              ],
+                            ),
+                          ],
                         ),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-                    StatusPill(
-                      label: widget.service.statusLabel(DateTime.now(), widget.recentWindow),
-                      color: color,
-                      icon: iconForServiceGroup(group),
-                    ),
-                    const SizedBox(height: 16),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: [
-                        _InfoChip(label: widget.service.serviceType.displayName),
-                        _InfoChip(label: widget.service.instanceName),
-                        _InfoChip(label: widget.service.projectName),
-                        _InfoChip(label: widget.service.environmentName),
-                        _InfoChip(
-                          label: widget.service.lastActivityDate == null
-                              ? 'No recent deployment'
-                              : 'Last activity ${formatRelativeTime(widget.service.lastActivityDate)}',
-                        ),
-                      ],
+                      ),
                     ),
                   ],
                 ),
